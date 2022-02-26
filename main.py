@@ -10,7 +10,6 @@ from fallbacks import pygame, LOADED_PYGAME
 from replay import ReplayWorld
 
 ESCAPE_KEYS = (pygame.K_q, pygame.K_ESCAPE)
-#check
 
 class Timekeeper:
     def __init__(self, interval):
