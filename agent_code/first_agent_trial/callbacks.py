@@ -7,7 +7,7 @@ import numpy as np
 ACTIONS = ['UP', 'RIGHT', 'DOWN', 'LEFT', 'WAIT', 'BOMB']
 STATE = 13
 EXPLORATION_RATE_DECAY = 0.97
-EXPLORATION_RATE = 0.4
+EXPLORATION_RATE = 0
 
 
 def setup(self):
@@ -44,7 +44,9 @@ def act(self, game_state: dict) -> str:
     :param game_state: The dictionary that describes everything on the board.
     :return: The action to take as a string.
     """
-    if np.random.rand() < self.exploration_rate:
+    q = self.q_sa
+    cond = np.max(list(q[features_to_index(state_to_features(game_state))].values()))
+    if cond < self.exploration_rate:
         # explore
         cordin = np.array(game_state['self'][3]).T
         x = cordin[0]
@@ -83,7 +85,6 @@ def act(self, game_state: dict) -> str:
             action = np.random.choice(valid_actions)
     else:
         # exploit
-        q = self.q_sa
         self.logger.debug("Exploiting (predict actions)")
         self.logger.debug(f"Q: {list(q[features_to_index(state_to_features(game_state))].values())}")
         action = ACTIONS[np.argmax(list(q[features_to_index(state_to_features(game_state))].values()))]

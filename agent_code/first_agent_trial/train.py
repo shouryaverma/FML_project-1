@@ -113,22 +113,22 @@ def reward_from_events(self, events: List[str]) -> int:
     certain behavior.
     """
     game_rewards = {
-        e.MOVED_LEFT: 0.0005,
-        e.MOVED_RIGHT: 0.0005,
-        e.MOVED_UP: 0.0005,
-        e.MOVED_DOWN: 0.0005,
-        e.WAITED: -0.001,
-        e.INVALID_ACTION: -0.08,
-        e.BOMB_EXPLODED: 0.002,
-        e.BOMB_DROPPED: 0.0003,
-        e.CRATE_DESTROYED: 0.05,
-        e.COIN_FOUND: 0.06,
-        e.COIN_COLLECTED: 0.3,
-        e.KILLED_OPPONENT: 0.5,
-        e.KILLED_SELF: -0.2,
-        e.GOT_KILLED: -0.1,
-        e.OPPONENT_ELIMINATED: 0,
-        e.SURVIVED_ROUND: 0.1,
+        e.MOVED_LEFT: -1,
+        e.MOVED_RIGHT: -1,
+        e.MOVED_UP: -1,
+        e.MOVED_DOWN: -1,
+        e.WAITED: -2,
+        e.INVALID_ACTION: -2,
+        e.BOMB_EXPLODED: 0,
+        e.BOMB_DROPPED: 5,
+        e.CRATE_DESTROYED: 1,
+        e.COIN_FOUND: 10,
+        e.COIN_COLLECTED: 20,
+        e.KILLED_OPPONENT: 20,
+        e.KILLED_SELF: -20,
+        e.GOT_KILLED: -20,
+        e.OPPONENT_ELIMINATED: 20,
+        e.SURVIVED_ROUND: 20
         # PLACEHOLDER_EVENT: -.1  # idea: the custom event is bad
     }
     reward_sum = 0
