@@ -4,9 +4,11 @@ import random
 
 import numpy as np
 
-
 ACTIONS = ['UP', 'RIGHT', 'DOWN', 'LEFT', 'WAIT', 'BOMB']
-STEP = 400
+STATE = 13
+EXPLORATION_RATE_DECAY = 0.97
+EXPLORATION_RATE = 0.4
+
 
 def setup(self):
     """
@@ -22,6 +24,7 @@ def setup(self):
 
     :param self: This object is passed to all callbacks and you can set arbitrary values.
     """
+    self.exploration_rate = EXPLORATION_RATE
     if self.train or not os.path.isfile("my-saved-model.pt"):
         self.logger.info("Setting up model from scratch.")
         weights = np.random.rand(len(ACTIONS))
@@ -41,7 +44,58 @@ def act(self, game_state: dict) -> str:
     :param game_state: The dictionary that describes everything on the board.
     :return: The action to take as a string.
     """
+    if np.random.rand() < self.exploration_rate:
+        # explore
+        cordin = np.array(game_state['self'][3]).T
+        x = cordin[0]
+        y = cordin[1]
+        arena = np.array(game_state['field']).T
+        bomb_map = np.ones(arena.shape) * 5
+        bomb_xys = [xy for (xy, t) in game_state['bombs']]
+
+        for (xb, yb), t in game_state['bombs']:
+            for (i, j) in [(xb + h, yb) for h in range(-3, 4)] + [(xb, yb + h) for h in range(-3, 4)]:
+                if (0 < i < bomb_map.shape[0]) and (0 < j < bomb_map.shape[1]):
+                    bomb_map[i, j] = min(bomb_map[i, j], t)
+
+        self.logger.debug("Exploring random action")
+        # action = np.random.choice(ACTIONS, p=[.2, .2, .2, .2, .1, .1])
+
+        # determine valid actions
+        directions = [(x, y), (x + 1, y), (x - 1, y), (x, y + 1), (x, y - 1)]
+        valid_tiles, valid_actions = [], []
+        for d in directions:
+            if ((arena[d] == 0) and
+                    (game_state['explosion_map'][d] <= 1) and
+                    (bomb_map[d] > 0) and
+                    (not d in bomb_xys)):
+                valid_tiles.append(d)
+        if (x - 1, y) in valid_tiles: valid_actions.append('LEFT')
+        if (x + 1, y) in valid_tiles: valid_actions.append('RIGHT')
+        if (x, y - 1) in valid_tiles: valid_actions.append('UP')
+        if (x, y + 1) in valid_tiles: valid_actions.append('DOWN')
+        if (x, y) in valid_tiles: valid_actions.append('WAIT')
+
+        self.logger.debug(f'Valid actions: {valid_actions}')
+        if len(valid_actions) == 0:
+            action = 'WAIT'
+        else:
+            action = np.random.choice(valid_actions)
+    else:
+        # exploit
+        q = self.q_sa
+        self.logger.debug("Exploiting (predict actions)")
+        self.logger.debug(f"Q: {list(q[features_to_index(state_to_features(game_state))].values())}")
+        action = ACTIONS[np.argmax(list(q[features_to_index(state_to_features(game_state))].values()))]
+
+    self.exploration_rate *= EXPLORATION_RATE_DECAY
+    self.exploration_rate = max(self.exploration_rate, 0.1)
+
+    self.logger.debug(f"Took action {action}")
+    return action
+
     # todo Exploration vs exploitation
+    """"
     random_prob = .1
     if self.train and random.random() < random_prob:
         self.logger.debug("Choosing action purely at random.")
@@ -49,7 +103,7 @@ def act(self, game_state: dict) -> str:
         return np.random.choice(ACTIONS, p=[.2, .2, .2, .2, .1, .1])
 
     self.logger.debug("Querying model for action.")
-    return np.random.choice(ACTIONS, p=self.model)
+    return np.random.choice(ACTIONS, p=self.model)"""
 
 
 def state_to_features(game_state: dict) -> np.array:
@@ -76,20 +130,86 @@ def state_to_features(game_state: dict) -> np.array:
     # concatenate them as a feature tensor (they must have the same shape), ...
     # stacked_channels = np.stack(channels)
 
-    field_channel = np.array(game_state["field"].T)
-    field_channel = field_channel[1:-1, 1:-1]
-    self_bomb_channel = game_state["self"][2]
-    self_cor_channel = np.array(game_state["self"][3]).T - 1
-    # others_bomb_channel = game_state["others"][2]
-    # others_cor_channel = np.array(game_state["others"][3]).T - 1
-    if game_state["bombs"]:
-        bomb_channel = np.array(game_state["bombs"]).T - 1
-    else:
-        bomb_channel = np.array([-1, -1])
-    if game_state["coins"]:
-        coin_channel = np.array(game_state["coins"]).T - 1
-    else:
-        coin_channel = np.array([-1, -1])
-    stacked_channels = np.array([self_bomb_channel] + [field_channel] + [self_cor_channel] + [bomb_channel] + [coin_channel])
+    self_cor_channel = np.array(game_state["self"][3]).T
+    right_channel = [self_cor_channel[0] + 1, self_cor_channel[1]]
+    left_channel = [self_cor_channel[0] - 1, self_cor_channel[1]]
+    up_channel = [self_cor_channel[0], self_cor_channel[1] - 1]
+    down_channel = [self_cor_channel[0], self_cor_channel[1] + 1]
+
+    left = cor_states(game_state, left_channel)
+    right = cor_states(game_state, right_channel)
+    up = cor_states(game_state, up_channel)
+    down = cor_states(game_state, down_channel)
+    # self_ch = cor_states(game_state, self_cor_channel) # no need to check current position
+
+    stacked_channels = np.array([left] + [right] + [up] + [down] + [game_state["self"][2]])
+    stacked_channels = np.concatenate(stacked_channels, axis=None)
     # and return them as a vector
     return stacked_channels
+
+
+def cor_states(game_state, coordinates):
+    """
+        Checks the given coordinates if there is a coin, if there is a wall or crate or free, and if there is a danger.
+        Danger also contains walls as well.
+
+        :param game_state:  A dictionary describing the current game board.
+        :param coordinates:  The given coordinates.
+        :return: np.array of size 3 -> ([0 or 1], [0 or 1], [0 or 1])
+        """
+    field_channel = np.array(game_state["field"].T)
+    coins = np.array(game_state["coins"]).T
+    bombs = np.array(game_state["bombs"]).T
+    explosion = np.array(game_state["explosion_map"]).T
+    state_bits = np.zeros(3)
+    if field_channel[coordinates[0], coordinates[1]] == 1:
+        state_bits[1] = 1
+    elif field_channel[coordinates[0], coordinates[1]] == 0:
+        state_bits[1] = 0
+    else:
+        state_bits[2] = 1
+    if coins.size != 0:
+        for ind in range(len(coins[0])):
+            if coins[0, ind] == coordinates[0] and coins[1, ind] == coordinates[1]:
+                state_bits[0] = 1
+    if bombs.size != 0:
+        for idx in range(len(bombs[0])):
+            check = list(bombs[idx][0])
+            if check[0] == coordinates[0] and check[1] == coordinates[1]:
+                state_bits[2] = 1
+    else:
+        state_bits[2] = 0
+    if explosion[coordinates[0], coordinates[1]] != 0:
+        state_bits[2] = 1
+    return state_bits
+
+
+def features_to_index(features):
+    return 2 ** 12 * features[0] + 2 ** 11 * features[1] + 2 ** 10 * features[2] + 2 ** 9 * features[3] + 2 ** 8 * \
+           features[4] + \
+           2 ** 7 * features[5] + 2 ** 6 * features[6] + 2 ** 5 * features[7] + 2 ** 4 * features[8] + 2 ** 3 * \
+           features[9] + 2 ** 2 * features[10] + \
+           2 ** 1 * features[11] + 2 ** 0 * features[12]
+
+
+def get_explosion_xys(start, map, bomb_power=3):
+    """
+    returns all tiles hit by an explosion starting at start given a 2d map of the game
+       where walls are indicated by -1
+    """
+    x, y = start
+    expl = [(x, y)]
+    for i in range(1, bomb_power + 1):
+        if map[x + i, y] == -1: break
+        expl.append((x + i, y))
+    for i in range(1, bomb_power + 1):
+        if map[x - i, y] == -1: break
+        expl.append((x - i, y))
+    for i in range(1, bomb_power + 1):
+        if map[x, y + i] == -1: break
+        expl.append((x, y + i))
+    for i in range(1, bomb_power + 1):
+        if map[x, y - i] == -1: break
+        expl.append((x, y - i))
+
+    return np.array(expl)

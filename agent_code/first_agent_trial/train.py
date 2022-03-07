@@ -1,10 +1,11 @@
 from collections import namedtuple, deque
 import numpy as np
 import pickle
+import os
 from typing import List
 
 import events as e
-from .callbacks import state_to_features, ACTIONS, STEP
+from .callbacks import state_to_features, ACTIONS, STATE, features_to_index
 
 # This is only an example!
 Transition = namedtuple('Transition',
@@ -16,6 +17,7 @@ RECORD_ENEMY_TRANSITIONS = 1.0  # record enemy transitions with probability ...
 
 # Events
 PLACEHOLDER_EVENT = "PLACEHOLDER"
+TOTAL_STATES = 8 ** 4 * 2
 
 
 def setup_training(self):
@@ -31,7 +33,17 @@ def setup_training(self):
     self.logger.debug("Parameters set up")
     self.alpha = 0.1
     self.gamma = 0.9
-    self.q_sa = np.zeros((STEP, len(ACTIONS)))
+
+    if not os.path.isfile("Q_sa.npy"):
+        self.logger.info("Setting up Q_sa function")
+        construct_q_table(TOTAL_STATES)
+        with open('Q_sa.npy', 'rb') as f:
+            self.q_sa = np.load(f)
+    else:
+        self.logger.info("Loading Q_sa function from saved state.")
+        with open('Q_sa.npy', 'rb') as f:
+            self.q_sa = np.load(f, allow_pickle=True)
+    self.q_sa = self.q_sa.tolist()
     self.transitions = deque(maxlen=TRANSITION_HISTORY_SIZE)
 
 
@@ -80,12 +92,17 @@ def end_of_round(self, last_game_state: dict, last_action: str, events: List[str
     :param self: The same object that is passed to all of your callbacks.
     """
     self.logger.debug(f'Encountered event(s) {", ".join(map(repr, events))} in final step')
+    reward = reward_from_events(self, events)
+    fit_models(self, last_game_state, last_action, None, reward)
     self.transitions.append(
         Transition(state_to_features(last_game_state), last_action, None, reward_from_events(self, events)))
 
     # Store the model
     with open("my-saved-model.pt", "wb") as file:
         pickle.dump(self.model, file)
+
+    with open('Q_sa.npy', 'wb') as f:
+        np.save(f, self.q_sa)
 
 
 def reward_from_events(self, events: List[str]) -> int:
@@ -101,7 +118,7 @@ def reward_from_events(self, events: List[str]) -> int:
         e.MOVED_UP: 0.0005,
         e.MOVED_DOWN: 0.0005,
         e.WAITED: -0.001,
-        e.INVALID_ACTION: -0.03,
+        e.INVALID_ACTION: -0.08,
         e.BOMB_EXPLODED: 0.002,
         e.BOMB_DROPPED: 0.0003,
         e.CRATE_DESTROYED: 0.05,
@@ -123,18 +140,38 @@ def reward_from_events(self, events: List[str]) -> int:
 
 
 def fit_models(self, old_game_state, action, new_game_state, reward):
-    old_state_idx = state_to_features(old_game_state)
+    if old_game_state is None:
+        old_state_idx = 0
+    else:
+        old_state_idx = features_to_index(state_to_features(old_game_state))
 
-    new_state_idx = state_to_features(new_game_state)
+    if new_game_state is None:
+        model_a_old_q_value = self.q_sa[old_state_idx][action]
 
-    model_a_new_q_values = self.q_sa[new_state_idx, :]
+        old_q_value = self.alpha * (
+                reward - model_a_old_q_value)
+    else:
+        new_state_idx = features_to_index(state_to_features(new_game_state))
 
-    model_a_old_q_value = self.q_sa[old_state_idx, ACTIONS.index(action)]
+        model_a_new_q_values = list(self.q_sa[new_state_idx].values())
+        model_a_old_q_value = self.q_sa[old_state_idx][action]
 
-    old_q_value = self.alpha * (
-            reward + self.gamma * model_a_new_q_values[np.argmax(model_a_new_q_values)] -
-            model_a_old_q_value)
+        old_q_value = self.alpha * (
+                reward + self.gamma * model_a_new_q_values[np.argmax(model_a_new_q_values)] -
+                model_a_old_q_value)
 
-    for i in range(STEP):
-        for j in range(len(ACTIONS)):
-            self.q_sa[i, j] += old_q_value
+    self.q_sa[old_state_idx][action] += old_q_value
+
+
+def construct_q_table(state_count):
+    Q = {}
+    for s in range(state_count):
+        Q[s] = {}
+        for a in ACTIONS:
+            if a == "WAIT" or a == "BOMB":
+                Q[s][a] = 0.1
+            else:
+                Q[s][a] = 0.2
+
+    with open('Q_sa.npy', 'wb') as f:
+        np.save(f, Q)
