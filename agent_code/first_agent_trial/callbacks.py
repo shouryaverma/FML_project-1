@@ -77,6 +77,7 @@ def act(self, game_state: dict) -> str:
         if (x, y - 1) in valid_tiles: valid_actions.append('UP')
         if (x, y + 1) in valid_tiles: valid_actions.append('DOWN')
         if (x, y) in valid_tiles: valid_actions.append('WAIT')
+        if game_state['self'][2]: valid_actions.append('BOMB')
 
         self.logger.debug(f'Valid actions: {valid_actions}')
         if len(valid_actions) == 0:
