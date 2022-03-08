@@ -6,8 +6,7 @@ import numpy as np
 
 ACTIONS = ['UP', 'RIGHT', 'DOWN', 'LEFT', 'WAIT', 'BOMB']
 STATE = 13
-EXPLORATION_RATE_DECAY = 0.97
-EXPLORATION_RATE = 0
+EXPLORATION_RATE = 0.4
 
 
 def setup(self):
@@ -88,10 +87,8 @@ def act(self, game_state: dict) -> str:
         # exploit
         self.logger.debug("Exploiting (predict actions)")
         self.logger.debug(f"Q: {list(q[features_to_index(state_to_features(game_state))].values())}")
+        self.logger.debug(f"Index: {features_to_index(state_to_features(game_state))}")
         action = ACTIONS[np.argmax(list(q[features_to_index(state_to_features(game_state))].values()))]
-
-    self.exploration_rate *= EXPLORATION_RATE_DECAY
-    self.exploration_rate = max(self.exploration_rate, 0.1)
 
     self.logger.debug(f"Took action {action}")
     return action
@@ -179,8 +176,6 @@ def cor_states(game_state, coordinates):
             check = list(bombs[idx][0])
             if check[0] == coordinates[0] and check[1] == coordinates[1]:
                 state_bits[2] = 1
-    else:
-        state_bits[2] = 0
     if explosion[coordinates[0], coordinates[1]] != 0:
         state_bits[2] = 1
     return state_bits

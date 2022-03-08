@@ -17,6 +17,8 @@ RECORD_ENEMY_TRANSITIONS = 1.0  # record enemy transitions with probability ...
 
 # Events
 PLACEHOLDER_EVENT = "PLACEHOLDER"
+DECREASED_DISTANCE = "DIST_DECREASED"
+INCREASED_DISTANCE = "DIST_INCREASED"
 TOTAL_STATES = 8 ** 4 * 2
 
 
@@ -38,7 +40,7 @@ def setup_training(self):
         self.logger.info("Setting up Q_sa function")
         construct_q_table(TOTAL_STATES)
         with open('Q_sa.npy', 'rb') as f:
-            self.q_sa = np.load(f)
+            self.q_sa = np.load(f, allow_pickle=True)
     else:
         self.logger.info("Loading Q_sa function from saved state.")
         with open('Q_sa.npy', 'rb') as f:
@@ -64,18 +66,16 @@ def game_events_occurred(self, old_game_state: dict, self_action: str, new_game_
     :param new_game_state: The state the agent is in now.
     :param events: The events that occurred when going from  `old_game_state` to `new_game_state`
     """
-    self.logger.debug(f'Encountered game event(s) {", ".join(map(repr, events))} in step {new_game_state["step"]}')
+    if old_game_state is not None:
+        events = coin_dist_check(old_game_state, new_game_state, events)
 
-    # Idea: Add your own events to hand out rewards
-    if ...:
-        events.append(PLACEHOLDER_EVENT)
+    self.logger.debug(f'Encountered game event(s) {", ".join(map(repr, events))} in step {new_game_state["step"]}')
 
     reward = reward_from_events(self, events)
     fit_models(self, old_game_state, self_action, new_game_state, reward)
     # state_to_features is defined in callbacks.py
     self.transitions.append(
-        Transition(state_to_features(old_game_state), self_action, state_to_features(new_game_state),
-                   reward_from_events(self, events)))
+        Transition(state_to_features(old_game_state), self_action, state_to_features(new_game_state), reward))
 
 
 def end_of_round(self, last_game_state: dict, last_action: str, events: List[str]):
@@ -95,7 +95,7 @@ def end_of_round(self, last_game_state: dict, last_action: str, events: List[str
     reward = reward_from_events(self, events)
     fit_models(self, last_game_state, last_action, None, reward)
     self.transitions.append(
-        Transition(state_to_features(last_game_state), last_action, None, reward_from_events(self, events)))
+        Transition(state_to_features(last_game_state), last_action, None, reward))
 
     # Store the model
     with open("my-saved-model.pt", "wb") as file:
@@ -128,7 +128,9 @@ def reward_from_events(self, events: List[str]) -> int:
         e.KILLED_SELF: -20,
         e.GOT_KILLED: -20,
         e.OPPONENT_ELIMINATED: 20,
-        e.SURVIVED_ROUND: 20
+        e.SURVIVED_ROUND: 20,
+        e.DECREASED_DISTANCE: 2,
+        e.INCREASED_DISTANCE: -5
         # PLACEHOLDER_EVENT: -.1  # idea: the custom event is bad
     }
     reward_sum = 0
@@ -175,3 +177,32 @@ def construct_q_table(state_count):
 
     with open('Q_sa.npy', 'wb') as f:
         np.save(f, Q)
+
+def coin_dist_check(old_game_state, new_game_state, events):
+    old_coins = np.array(old_game_state["coins"]).T
+    new_coins = np.array(new_game_state["coins"]).T
+    old_self_cor_channel = np.array(old_game_state["self"][3]).T
+    new_self_cor_channel = np.array(new_game_state["self"][3]).T
+    if old_coins.size != 0 and new_coins.size != 0:
+        if old_coins.size > new_coins.size:
+            max_coin = old_coins
+            min_coin = new_coins
+        else:
+            max_coin = new_coins
+            min_coin = old_coins
+        for ind in range(len(max_coin[0])):
+            for index in range(len(min_coin[0])):
+                if max_coin[0, ind] == min_coin[0, index] and max_coin[1, ind] == min_coin[1, index]:
+                    max_dist = np.abs((max_coin[0, ind] - old_self_cor_channel[0])) + np.abs(
+                        (max_coin[1, ind] - old_self_cor_channel[1]))
+                    min_dist = np.abs((min_coin[0, index] - new_self_cor_channel[0])) + np.abs(
+                        (min_coin[1, index] - new_self_cor_channel[1]))
+                    if min_dist < max_dist and max_coin.all() == old_coins.all():
+                        events.append(DECREASED_DISTANCE)
+                    elif min_dist > max_dist and max_coin.all() == old_coins.all():
+                        events.append(INCREASED_DISTANCE)
+                    elif min_dist < max_dist and min_coin.all() == old_coins.all():
+                        events.append(INCREASED_DISTANCE)
+                    elif min_dist > max_dist and min_coin.all() == old_coins.all():
+                        events.append(DECREASED_DISTANCE)
+    return events
