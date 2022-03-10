@@ -36,14 +36,14 @@ def setup_training(self):
     self.alpha = 0.1
     self.gamma = 0.9
 
-    if not os.path.isfile("Q_sa.npy"):
+    if not os.path.isfile("Q_sa_1.npy"):
         self.logger.info("Setting up Q_sa function")
         construct_q_table(TOTAL_STATES)
-        with open('Q_sa.npy', 'rb') as f:
+        with open('Q_sa_1.npy', 'rb') as f:
             self.q_sa = np.load(f, allow_pickle=True)
     else:
         self.logger.info("Loading Q_sa function from saved state.")
-        with open('Q_sa.npy', 'rb') as f:
+        with open('Q_sa_1.npy', 'rb') as f:
             self.q_sa = np.load(f, allow_pickle=True)
     self.q_sa = self.q_sa.tolist()
     self.transitions = deque(maxlen=TRANSITION_HISTORY_SIZE)
@@ -101,7 +101,7 @@ def end_of_round(self, last_game_state: dict, last_action: str, events: List[str
     with open("my-saved-model.pt", "wb") as file:
         pickle.dump(self.model, file)
 
-    with open('Q_sa.npy', 'wb') as f:
+    with open('Q_sa_1.npy', 'wb') as f:
         np.save(f, self.q_sa)
 
 
@@ -113,15 +113,15 @@ def reward_from_events(self, events: List[str]) -> int:
     certain behavior.
     """
     game_rewards = {
-        e.MOVED_LEFT: -1,
-        e.MOVED_RIGHT: -1,
-        e.MOVED_UP: -1,
-        e.MOVED_DOWN: -1,
-        e.WAITED: -2,
+        e.MOVED_LEFT: 0.5,
+        e.MOVED_RIGHT: 0.5,
+        e.MOVED_UP: 0.5,
+        e.MOVED_DOWN: 0.5,
+        e.WAITED: -0.5,
         e.INVALID_ACTION: -2,
         e.BOMB_EXPLODED: 0,
-        e.BOMB_DROPPED: 5,
-        e.CRATE_DESTROYED: 1,
+        e.BOMB_DROPPED: 0.3,
+        e.CRATE_DESTROYED: 3,
         e.COIN_FOUND: 10,
         e.COIN_COLLECTED: 20,
         e.KILLED_OPPONENT: 20,
@@ -130,7 +130,7 @@ def reward_from_events(self, events: List[str]) -> int:
         e.OPPONENT_ELIMINATED: 20,
         e.SURVIVED_ROUND: 20,
         e.DECREASED_DISTANCE: 2,
-        e.INCREASED_DISTANCE: -5
+        e.INCREASED_DISTANCE: -2
         # PLACEHOLDER_EVENT: -.1  # idea: the custom event is bad
     }
     reward_sum = 0
@@ -175,7 +175,7 @@ def construct_q_table(state_count):
             else:
                 Q[s][a] = 0.2
 
-    with open('Q_sa.npy', 'wb') as f:
+    with open('Q_sa_1.npy', 'wb') as f:
         np.save(f, Q)
 
 def coin_dist_check(old_game_state, new_game_state, events):

@@ -6,7 +6,7 @@ import numpy as np
 
 ACTIONS = ['UP', 'RIGHT', 'DOWN', 'LEFT', 'WAIT', 'BOMB']
 STATE = 13
-EXPLORATION_RATE = 0.4
+EXPLORATION_RATE = 0.7
 
 
 def setup(self):
@@ -174,7 +174,7 @@ def cor_states(game_state, coordinates):
     if bombs.size != 0:
         for idx in range(len(bombs[0])):
             check = list(bombs[idx][0])
-            if check[0] == coordinates[0] and check[1] == coordinates[1]:
+            if check[0] == coordinates[0] or check[1] == coordinates[1]:
                 state_bits[2] = 1
     if explosion[coordinates[0], coordinates[1]] != 0:
         state_bits[2] = 1
