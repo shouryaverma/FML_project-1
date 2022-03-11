@@ -19,6 +19,8 @@ RECORD_ENEMY_TRANSITIONS = 1.0  # record enemy transitions with probability ...
 PLACEHOLDER_EVENT = "PLACEHOLDER"
 DECREASED_DISTANCE = "DIST_DECREASED"
 INCREASED_DISTANCE = "DIST_INCREASED"
+BOMB_DROPPED_CORNER = "BOMB_CORNER"
+PREV_ACT = 'FIRST'
 TOTAL_STATES = 8 ** 4 * 2
 
 
@@ -37,12 +39,12 @@ def setup_training(self):
     self.gamma = 0.9
 
     if not os.path.isfile("Q_sa_1.npy"):
-        self.logger.info("Setting up Q_sa function")
+        self.logger.info("Setting up Q_sa_1 function")
         construct_q_table(TOTAL_STATES)
         with open('Q_sa_1.npy', 'rb') as f:
             self.q_sa = np.load(f, allow_pickle=True)
     else:
-        self.logger.info("Loading Q_sa function from saved state.")
+        self.logger.info("Loading Q_sa_1 function from saved state.")
         with open('Q_sa_1.npy', 'rb') as f:
             self.q_sa = np.load(f, allow_pickle=True)
     self.q_sa = self.q_sa.tolist()
@@ -66,6 +68,8 @@ def game_events_occurred(self, old_game_state: dict, self_action: str, new_game_
     :param new_game_state: The state the agent is in now.
     :param events: The events that occurred when going from  `old_game_state` to `new_game_state`
     """
+    if old_game_state is None and self_action =='BOMB':
+        events.append(BOMB_DROPPED_CORNER)
     if old_game_state is not None:
         events = coin_dist_check(old_game_state, new_game_state, events)
 
@@ -73,6 +77,7 @@ def game_events_occurred(self, old_game_state: dict, self_action: str, new_game_
 
     reward = reward_from_events(self, events)
     fit_models(self, old_game_state, self_action, new_game_state, reward)
+
     # state_to_features is defined in callbacks.py
     self.transitions.append(
         Transition(state_to_features(old_game_state), self_action, state_to_features(new_game_state), reward))
@@ -113,24 +118,25 @@ def reward_from_events(self, events: List[str]) -> int:
     certain behavior.
     """
     game_rewards = {
-        e.MOVED_LEFT: 0.5,
-        e.MOVED_RIGHT: 0.5,
-        e.MOVED_UP: 0.5,
-        e.MOVED_DOWN: 0.5,
-        e.WAITED: -0.5,
-        e.INVALID_ACTION: -2,
+        e.MOVED_LEFT: -0.01,
+        e.MOVED_RIGHT: -0.01,
+        e.MOVED_UP: -0.01,
+        e.MOVED_DOWN: -0.01,
+        e.WAITED: -0.01,
+        e.INVALID_ACTION: -0.04,
         e.BOMB_EXPLODED: 0,
-        e.BOMB_DROPPED: 0.3,
-        e.CRATE_DESTROYED: 3,
-        e.COIN_FOUND: 10,
-        e.COIN_COLLECTED: 20,
-        e.KILLED_OPPONENT: 20,
-        e.KILLED_SELF: -20,
-        e.GOT_KILLED: -20,
-        e.OPPONENT_ELIMINATED: 20,
-        e.SURVIVED_ROUND: 20,
-        e.DECREASED_DISTANCE: 2,
-        e.INCREASED_DISTANCE: -2
+        e.BOMB_DROPPED: -0.01,
+        e.CRATE_DESTROYED: 0.2,
+        e.COIN_FOUND: 0.2,
+        e.COIN_COLLECTED: 0.4,
+        e.KILLED_OPPONENT: 2,
+        e.KILLED_SELF: -2,
+        e.GOT_KILLED: -1,
+        e.OPPONENT_ELIMINATED: 2,
+        e.SURVIVED_ROUND: 0.2,
+        e.DECREASED_DISTANCE: 0.2,
+        e.INCREASED_DISTANCE: -0.2,
+        e.BOMB_DROPPED_CORNER: -0.2
         # PLACEHOLDER_EVENT: -.1  # idea: the custom event is bad
     }
     reward_sum = 0
@@ -171,12 +177,13 @@ def construct_q_table(state_count):
         Q[s] = {}
         for a in ACTIONS:
             if a == "WAIT" or a == "BOMB":
-                Q[s][a] = 0.1
+                Q[s][a] = 0.16
             else:
-                Q[s][a] = 0.2
+                Q[s][a] = 0.17
 
     with open('Q_sa_1.npy', 'wb') as f:
         np.save(f, Q)
+
 
 def coin_dist_check(old_game_state, new_game_state, events):
     old_coins = np.array(old_game_state["coins"]).T

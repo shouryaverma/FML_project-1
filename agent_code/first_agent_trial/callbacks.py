@@ -6,7 +6,7 @@ import numpy as np
 
 ACTIONS = ['UP', 'RIGHT', 'DOWN', 'LEFT', 'WAIT', 'BOMB']
 STATE = 13
-EXPLORATION_RATE = 0.7
+EXPLORATION_RATE = 0.02
 
 
 def setup(self):
@@ -47,17 +47,17 @@ def act(self, game_state: dict) -> str:
     cond = np.max(list(q[features_to_index(state_to_features(game_state))].values()))
     if cond < self.exploration_rate:
         # explore
-        cordin = np.array(game_state['self'][3]).T
+        cordin = np.array(game_state['self'][3])
         x = cordin[0]
         y = cordin[1]
-        arena = np.array(game_state['field']).T
+        arena = np.array(game_state['field'])
         bomb_map = np.ones(arena.shape) * 5
         bomb_xys = [xy for (xy, t) in game_state['bombs']]
 
         for (xb, yb), t in game_state['bombs']:
             for (i, j) in [(xb + h, yb) for h in range(-3, 4)] + [(xb, yb + h) for h in range(-3, 4)]:
                 if (0 < i < bomb_map.shape[0]) and (0 < j < bomb_map.shape[1]):
-                    bomb_map[i, j] = min(bomb_map[i, j], t)
+                    bomb_map[j, i] = min(bomb_map[i, j], t)
 
         self.logger.debug("Exploring random action")
         # action = np.random.choice(ACTIONS, p=[.2, .2, .2, .2, .1, .1])
@@ -129,11 +129,11 @@ def state_to_features(game_state: dict) -> np.array:
     # concatenate them as a feature tensor (they must have the same shape), ...
     # stacked_channels = np.stack(channels)
 
-    self_cor_channel = np.array(game_state["self"][3]).T
-    right_channel = [self_cor_channel[0] + 1, self_cor_channel[1]]
-    left_channel = [self_cor_channel[0] - 1, self_cor_channel[1]]
-    up_channel = [self_cor_channel[0], self_cor_channel[1] - 1]
-    down_channel = [self_cor_channel[0], self_cor_channel[1] + 1]
+    self_cor_channel = np.array(game_state["self"][3])
+    down_channel = [self_cor_channel[0] + 1, self_cor_channel[1]]
+    up_channel = [self_cor_channel[0] - 1, self_cor_channel[1]]
+    left_channel = [self_cor_channel[0], self_cor_channel[1] - 1]
+    right_channel = [self_cor_channel[0], self_cor_channel[1] + 1]
 
     left = cor_states(game_state, left_channel)
     right = cor_states(game_state, right_channel)
@@ -156,10 +156,10 @@ def cor_states(game_state, coordinates):
         :param coordinates:  The given coordinates.
         :return: np.array of size 3 -> ([0 or 1], [0 or 1], [0 or 1])
         """
-    field_channel = np.array(game_state["field"].T)
+    field_channel = np.array(game_state["field"])
     coins = np.array(game_state["coins"]).T
     bombs = np.array(game_state["bombs"]).T
-    explosion = np.array(game_state["explosion_map"]).T
+    explosion = np.array(game_state["explosion_map"])
     state_bits = np.zeros(3)
     if field_channel[coordinates[0], coordinates[1]] == 1:
         state_bits[1] = 1
@@ -174,8 +174,9 @@ def cor_states(game_state, coordinates):
     if bombs.size != 0:
         for idx in range(len(bombs[0])):
             check = list(bombs[idx][0])
-            if check[0] == coordinates[0] or check[1] == coordinates[1]:
-                state_bits[2] = 1
+            if bombs[1] == 1:
+                if check[0] == coordinates[0] or check[1] == coordinates[1]:
+                    state_bits[2] = 1
     if explosion[coordinates[0], coordinates[1]] != 0:
         state_bits[2] = 1
     return state_bits
