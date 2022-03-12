@@ -21,6 +21,7 @@ DECREASED_DISTANCE = "DIST_DECREASED"
 INCREASED_DISTANCE = "DIST_INCREASED"
 BOMB_DROPPED_CORNER = "BOMB_CORNER"
 PREV_ACT = 'FIRST'
+BOMB_NEAR_CRATE = 'BOMB_NEAR_CRATE'
 TOTAL_STATES = 8 ** 4 * 2
 
 
@@ -38,14 +39,14 @@ def setup_training(self):
     self.alpha = 0.1
     self.gamma = 0.9
 
-    if not os.path.isfile("Q_sa_1.npy"):
-        self.logger.info("Setting up Q_sa_1 function")
+    if not os.path.isfile("Q_sa.npy"):
+        self.logger.info("Setting up Q_sa function")
         construct_q_table(TOTAL_STATES)
-        with open('Q_sa_1.npy', 'rb') as f:
+        with open('Q_sa.npy', 'rb') as f:
             self.q_sa = np.load(f, allow_pickle=True)
     else:
-        self.logger.info("Loading Q_sa_1 function from saved state.")
-        with open('Q_sa_1.npy', 'rb') as f:
+        self.logger.info("Loading Q_sa function from saved state.")
+        with open('Q_sa.npy', 'rb') as f:
             self.q_sa = np.load(f, allow_pickle=True)
     self.q_sa = self.q_sa.tolist()
     self.transitions = deque(maxlen=TRANSITION_HISTORY_SIZE)
@@ -68,9 +69,10 @@ def game_events_occurred(self, old_game_state: dict, self_action: str, new_game_
     :param new_game_state: The state the agent is in now.
     :param events: The events that occurred when going from  `old_game_state` to `new_game_state`
     """
-    if old_game_state is None and self_action =='BOMB':
+    if old_game_state is None and self_action == 'BOMB':
         events.append(BOMB_DROPPED_CORNER)
     if old_game_state is not None:
+        events = bomb_check(new_game_state, self_action, events)
         events = coin_dist_check(old_game_state, new_game_state, events)
 
     self.logger.debug(f'Encountered game event(s) {", ".join(map(repr, events))} in step {new_game_state["step"]}')
@@ -106,7 +108,7 @@ def end_of_round(self, last_game_state: dict, last_action: str, events: List[str
     with open("my-saved-model.pt", "wb") as file:
         pickle.dump(self.model, file)
 
-    with open('Q_sa_1.npy', 'wb') as f:
+    with open('Q_sa.npy', 'wb') as f:
         np.save(f, self.q_sa)
 
 
@@ -118,12 +120,12 @@ def reward_from_events(self, events: List[str]) -> int:
     certain behavior.
     """
     game_rewards = {
-        e.MOVED_LEFT: -0.01,
-        e.MOVED_RIGHT: -0.01,
-        e.MOVED_UP: -0.01,
-        e.MOVED_DOWN: -0.01,
-        e.WAITED: -0.01,
-        e.INVALID_ACTION: -0.04,
+        e.MOVED_LEFT: 0.01,
+        e.MOVED_RIGHT: 0.01,
+        e.MOVED_UP: 0.01,
+        e.MOVED_DOWN: 0.01,
+        e.WAITED: -0.005,
+        e.INVALID_ACTION: -0.08,
         e.BOMB_EXPLODED: 0,
         e.BOMB_DROPPED: -0.01,
         e.CRATE_DESTROYED: 0.2,
@@ -136,7 +138,8 @@ def reward_from_events(self, events: List[str]) -> int:
         e.SURVIVED_ROUND: 0.2,
         e.DECREASED_DISTANCE: 0.2,
         e.INCREASED_DISTANCE: -0.2,
-        e.BOMB_DROPPED_CORNER: -0.2
+        e.BOMB_DROPPED_CORNER: -0.2,
+        e.BOMB_NEAR_CRATE: 0.05
         # PLACEHOLDER_EVENT: -.1  # idea: the custom event is bad
     }
     reward_sum = 0
@@ -181,7 +184,7 @@ def construct_q_table(state_count):
             else:
                 Q[s][a] = 0.17
 
-    with open('Q_sa_1.npy', 'wb') as f:
+    with open('Q_sa.npy', 'wb') as f:
         np.save(f, Q)
 
 
@@ -212,4 +215,18 @@ def coin_dist_check(old_game_state, new_game_state, events):
                         events.append(INCREASED_DISTANCE)
                     elif min_dist > max_dist and min_coin.all() == old_coins.all():
                         events.append(DECREASED_DISTANCE)
+    return events
+
+
+def bomb_check(new_game_state, self_action, events):
+    self_cord = np.array(new_game_state["self"][3])
+    if (self_cord[1] == 1 and self_cord[0] == 1) or (self_cord[1] == 1 and self_cord[0] == 15) or \
+            (self_cord[1] == 15 and self_cord[0] == 1) or (self_cord[1] == 15 and self_cord[0] == 15):
+        if self_action == 'BOMB':
+            events.append(BOMB_DROPPED_CORNER)
+    field = np.array(new_game_state["field"]).T
+    if (field[self_cord[1], self_cord[0]+1] == 1) or (field[self_cord[1], self_cord[0]-1] == 1) or \
+            (field[self_cord[1]+1, self_cord[0]] == 1) or (field[self_cord[1]-1, self_cord[0]] == 1):
+        if self_action == 'BOMB':
+            events.append(BOMB_NEAR_CRATE)
     return events

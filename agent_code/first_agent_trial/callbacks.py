@@ -6,7 +6,7 @@ import numpy as np
 
 ACTIONS = ['UP', 'RIGHT', 'DOWN', 'LEFT', 'WAIT', 'BOMB']
 STATE = 13
-EXPLORATION_RATE = 0.02
+EXPLORATION_RATE = 0.03
 
 
 def setup(self):
@@ -68,8 +68,9 @@ def act(self, game_state: dict) -> str:
         directions = [(x, y), (x + 1, y), (x - 1, y), (x, y + 1), (x, y - 1)]
         valid_tiles, valid_actions = [], []
         for d in directions:
+            d_trans = (d[1], d[0])
             if ((arena[d] == 0) and
-                    (game_state['explosion_map'][d] <= 1) and
+                    (game_state['explosion_map'][d_trans] <= 1) and
                     (bomb_map[d] > 0) and
                     (not d in bomb_xys)):
                 valid_tiles.append(d)
@@ -171,15 +172,15 @@ def cor_states(game_state, coordinates):
         state_bits[2] = 1
     if coins.size != 0:
         for ind in range(len(coins[0])):
-            if coins[0, ind] == coordinates[0] and coins[1, ind] == coordinates[1]:
+            if coins[0, ind] == coordinates[1] and coins[1, ind] == coordinates[0]:
                 state_bits[0] = 1
     if bombs.size != 0:
         for idx in range(len(bombs[0])):
             check = list(bombs[idx][0])
             if bombs[1] == 1:
-                if check[0] == coordinates[0] or check[1] == coordinates[1]:
+                if check[0] == coordinates[1] or check[1] == coordinates[0]:
                     state_bits[2] = 1
-    if explosion[coordinates[0], coordinates[1]] != 0:
+    if explosion[coordinates[1], coordinates[0]] != 0:
         state_bits[2] = 1
     return state_bits
 
