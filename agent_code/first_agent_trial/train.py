@@ -125,28 +125,29 @@ def reward_from_events(self, events: List[str]) -> int:
     certain behavior.
     """
     game_rewards = {
-        e.MOVED_LEFT: -0.01,
-        e.MOVED_RIGHT: -0.01,
-        e.MOVED_UP: -0.01,
-        e.MOVED_DOWN: -0.01,
-        e.WAITED: -0.03,
-        e.INVALID_ACTION: -0.08,
+        e.MOVED_LEFT: -0.001,
+        e.MOVED_RIGHT: -0.001,
+        e.MOVED_UP: -0.001,
+        e.MOVED_DOWN: -0.001,
+        e.WAITED: -0.003,
+        e.INVALID_ACTION: -0.008,
         e.BOMB_EXPLODED: 0,
-        e.BOMB_DROPPED: -0.01,
-        e.CRATE_DESTROYED: 0.2,
-        e.COIN_FOUND: 0.2,
-        e.COIN_COLLECTED: 0.4,
-        e.KILLED_OPPONENT: 2,
-        e.KILLED_SELF: -2,
-        e.GOT_KILLED: -1,
-        e.OPPONENT_ELIMINATED: 2,
-        e.SURVIVED_ROUND: 0.2,
-        e.DECREASED_DISTANCE: 0.2,
-        e.INCREASED_DISTANCE: -0.2,
-        e.BOMB_DROPPED_CORNER: -0.2,
-        e.BOMB_NEAR_CRATE: 0.05,
-        e.MOVED_AWAY_FROM_BOMB: 0.05,
-        e.MOVED_TO_BOMB: -0.05
+        e.BOMB_DROPPED: -0.001,
+        e.CRATE_DESTROYED: 0.02,
+        e.COIN_FOUND: 0.02,
+        e.COIN_COLLECTED: 0.04,
+        e.KILLED_OPPONENT: 0.2,
+        e.KILLED_SELF: -0.2,
+        e.GOT_KILLED: -0.1,
+        e.OPPONENT_ELIMINATED: 0.2,
+        e.SURVIVED_ROUND: 0.02,
+        # custom events
+        e.DECREASED_DISTANCE: 0.02,
+        e.INCREASED_DISTANCE: -0.02,
+        e.BOMB_DROPPED_CORNER: -0.02,
+        e.BOMB_NEAR_CRATE: 0.005,
+        e.MOVED_AWAY_FROM_BOMB: 0.005,
+        e.MOVED_TO_BOMB: -0.005
         # PLACEHOLDER_EVENT: -.1  # idea: the custom event is bad
     }
     reward_sum = 0
@@ -167,17 +168,17 @@ def fit_models(self, old_game_state, action, new_game_state, reward):
     if new_game_state is None:
         PREV_Q[len(PREV_Q)] = [old_state_idx, action]
         if reward < 0:
-            for old_ind in range(len(PREV_Q) - 3, len(PREV_Q) - 1):
-                model_a_old_q_value = self.q_sa[PREV_Q[old_ind][0]][PREV_Q[old_ind][1]]
-                old_q_value = self.alpha * (
-                        reward / 3 + self.gamma * model_a_old_q_value)
-                self.q_sa[PREV_Q[old_ind][0]][PREV_Q[old_ind][1]] += old_q_value
+            for old_ind in range(len(PREV_Q) - 2, len(PREV_Q)):
+                model_old_q_value = self.q_sa[PREV_Q[old_ind][0]][PREV_Q[old_ind][1]]
+                old_q = self.alpha * (
+                        reward / 3 + self.gamma * model_old_q_value)
+                self.q_sa[PREV_Q[old_ind][0]][PREV_Q[old_ind][1]] += old_q
         else:
             for old_ind in range(len(PREV_Q) - 1):
-                model_a_old_q_value = self.q_sa[PREV_Q[old_ind][0]][PREV_Q[old_ind][1]]
-                old_q_value = self.alpha * (
-                        reward / len(PREV_Q) + self.gamma * model_a_old_q_value)
-                self.q_sa[PREV_Q[old_ind][0]][PREV_Q[old_ind][1]] += old_q_value
+                model_old_q_value = self.q_sa[PREV_Q[old_ind][0]][PREV_Q[old_ind][1]]
+                old_q = self.alpha * (
+                        reward / len(PREV_Q) + self.gamma * model_old_q_value)
+                self.q_sa[PREV_Q[old_ind][0]][PREV_Q[old_ind][1]] += old_q
         model_a_old_q_value = self.q_sa[old_state_idx][action]
         old_q_value = self.alpha * (
                 reward / len(PREV_Q) - model_a_old_q_value)
@@ -202,9 +203,9 @@ def construct_q_table(state_count):
         Q[s] = {}
         for a in ACTIONS:
             if a == "WAIT" or a == "BOMB":
-                Q[s][a] = 0.16
+                Q[s][a] = 0
             else:
-                Q[s][a] = 0.17
+                Q[s][a] = 0
 
     with open('Q_sa_2.npy', 'wb') as f:
         np.save(f, Q)

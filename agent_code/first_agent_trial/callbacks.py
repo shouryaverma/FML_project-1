@@ -62,7 +62,8 @@ def act(self, game_state: dict) -> str:
                     bomb_map[i, j] = min(bomb_map[i, j], t)
 
         self.logger.debug("Exploring random action")
-        # action = np.random.choice(ACTIONS, p=[.2, .2, .2, .2, .1, .1])
+        self.logger.debug(f"Random Q: {list(q[features_to_index(state_to_features(game_state))].values())}")
+        self.logger.debug(f"Explore index: {features_to_index(state_to_features(game_state))}")
 
         # determine valid actions
         directions = [(x, y), (x + 1, y), (x - 1, y), (x, y + 1), (x, y - 1)]
@@ -70,7 +71,7 @@ def act(self, game_state: dict) -> str:
         for d in directions:
             d_trans = (d[1], d[0])
             if ((arena[d] == 0) and
-                    (game_state['explosion_map'][d_trans] <= 1) and
+                    (game_state['explosion_map'][d_trans] < 1) and
                     (bomb_map[d] > 0) and
                     (not d in bomb_xys)):
                 valid_tiles.append(d)
