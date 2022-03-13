@@ -178,8 +178,15 @@ def cor_states(game_state, coordinates):
         for idx in range(len(bombs[0])):
             check = list(bombs[idx][0])
             if bombs[1] == 1:
-                if check[0] == coordinates[1] or check[1] == coordinates[0]:
+                if (check[0] == coordinates[1] and np.abs(check[1] - coordinates[0]) < 3) or (check[1] == coordinates[0] and np.abs(
+                            check[0] - coordinates[1]) < 3):
                     state_bits[2] = 1
+            elif bombs[1] == 2:
+                if (check[0] == coordinates[1] and np.abs(check[1] - coordinates[0]) < 2) or (check[1] == coordinates[0] and np.abs(
+                            check[0] - coordinates[1]) < 2):
+                    state_bits[2] = 1
+            if check[0] == coordinates[1] and check[1] == coordinates[0]:
+                state_bits[2] = 1
     if explosion[coordinates[1], coordinates[0]] != 0:
         state_bits[2] = 1
     return state_bits
