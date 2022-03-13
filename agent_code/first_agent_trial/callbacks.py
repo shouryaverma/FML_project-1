@@ -7,6 +7,8 @@ import numpy as np
 ACTIONS = ['UP', 'RIGHT', 'DOWN', 'LEFT', 'WAIT', 'BOMB']
 STATE = 13
 EXPLORATION_RATE = 0.03
+EXPLORE_COUNT = 0
+EXPLOIT_COUNT = 0
 
 
 def setup(self):
@@ -43,6 +45,8 @@ def act(self, game_state: dict) -> str:
     :param game_state: The dictionary that describes everything on the board.
     :return: The action to take as a string.
     """
+    global EXPLORE_COUNT
+    global EXPLOIT_COUNT
     q = self.q_sa
     cond = np.max(list(q[features_to_index(state_to_features(game_state))].values()))
     if cond < self.exploration_rate:
@@ -85,15 +89,24 @@ def act(self, game_state: dict) -> str:
         self.logger.debug(f'Valid actions: {valid_actions}')
         if len(valid_actions) == 0:
             action = 'WAIT'
+            EXPLORE_COUNT += 1
         else:
-            action = np.random.choice(valid_actions)
+            max_act = ACTIONS[np.argmax(list(q[features_to_index(state_to_features(game_state))].values()))]
+            if max_act in valid_actions:
+                EXPLOIT_COUNT += 1
+                action = max_act
+            else:
+                EXPLORE_COUNT += 1
+                action = np.random.choice(valid_actions)
     else:
         # exploit
+        EXPLOIT_COUNT += 1
         self.logger.debug("Exploiting (predict actions)")
         self.logger.debug(f"Q: {list(q[features_to_index(state_to_features(game_state))].values())}")
         self.logger.debug(f"Index: {features_to_index(state_to_features(game_state))}")
         action = ACTIONS[np.argmax(list(q[features_to_index(state_to_features(game_state))].values()))]
 
+    self.logger.debug(f"Explore count: {EXPLORE_COUNT}, Exploit count: {EXPLOIT_COUNT}")
     self.logger.debug(f"Took action {action}")
     return action
 

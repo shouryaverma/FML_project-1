@@ -108,7 +108,6 @@ def end_of_round(self, last_game_state: dict, last_action: str, events: List[str
     fit_models(self, last_game_state, last_action, None, reward)
     self.transitions.append(
         Transition(state_to_features(last_game_state), last_action, None, reward))
-
     # Store the model
     with open("my-saved-model.pt", "wb") as file:
         pickle.dump(self.model, file)
@@ -195,6 +194,14 @@ def fit_models(self, old_game_state, action, new_game_state, reward):
                 model_a_old_q_value)
 
     self.q_sa[old_state_idx][action] += old_q_value
+
+    if self.q_sa[old_state_idx][action] < -1:
+        self.q_sa[old_state_idx][action] = -1
+    elif self.q_sa[old_state_idx][action] > 1:
+        for act in ACTIONS:
+            if self.q_sa[old_state_idx][act] > 1:
+                self.q_sa[old_state_idx][act] / self.q_sa[old_state_idx][action]
+
 
 
 def construct_q_table(state_count):
