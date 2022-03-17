@@ -44,16 +44,16 @@ def setup_training(self):
     # (s, a, r, s')
     self.logger.debug("Parameters set up")
     self.alpha = 0.1
-    self.gamma = 0.9
+    self.gamma = 0.8
 
-    if not os.path.isfile("Q_sa_inc_state_2.npy"):
-        self.logger.info("Setting up Q_sa_inc_state_2 function")
+    if not os.path.isfile("Q_sa_rule.npy"):
+        self.logger.info("Setting up Q_sa_rule function")
         construct_q_table(TOTAL_STATES)
-        with open('Q_sa_inc_state_2.npy', 'rb') as f:
+        with open('Q_sa_rule.npy', 'rb') as f:
             self.q_sa = np.load(f, allow_pickle=True)
     else:
-        self.logger.info("Loading Q_sa_inc_state_2 function from saved state.")
-        with open('Q_sa_inc_state_2.npy', 'rb') as f:
+        self.logger.info("Loading Q_sa_rule function from saved state.")
+        with open('Q_sa_rule.npy', 'rb') as f:
             self.q_sa = np.load(f, allow_pickle=True)
     self.q_sa = self.q_sa.tolist()
     self.transitions = deque(maxlen=TRANSITION_HISTORY_SIZE)
@@ -83,7 +83,7 @@ def game_events_occurred(self, old_game_state: dict, self_action: str, new_game_
         events = coin_dist_check(old_game_state, new_game_state, events)
         if np.array(new_game_state['bombs']).T.size > 0:
             events = bomb_dist_check(old_game_state, new_game_state, events)
-            events = dead_end_check(old_game_state, new_game_state, events)
+            events = dead_end_check2(old_game_state, new_game_state, events)
 
     self.logger.debug(f'Encountered game event(s) {", ".join(map(repr, events))} in step {new_game_state["step"]}')
 
@@ -114,10 +114,14 @@ def end_of_round(self, last_game_state: dict, last_action: str, events: List[str
     self.transitions.append(
         Transition(state_to_features(last_game_state), last_action, None, reward))
     # Store the model
+    for s in self.q_sa:
+        for a in self.q_sa[s]:
+            self.q_sa[s][a] = round(self.q_sa[s][a], 5)
+
     with open("my-saved-model.pt", "wb") as file:
         pickle.dump(self.model, file)
 
-    with open('Q_sa_inc_state_2.npy', 'wb') as f:
+    with open('Q_sa_rule.npy', 'wb') as f:
         np.save(f, self.q_sa)
 
 
@@ -129,34 +133,52 @@ def reward_from_events(self, events: List[str]) -> int:
     certain behavior.
     """
     game_rewards = {
-        e.MOVED_LEFT: -0.01,
-        e.MOVED_RIGHT: -0.01,
-        e.MOVED_UP: -0.01,
-        e.MOVED_DOWN: -0.01,
-        e.WAITED: -0.02,
-        e.INVALID_ACTION: -0.08,
+        e.MOVED_LEFT: -0.1,
+        e.MOVED_RIGHT: -0.1,
+        e.MOVED_UP: -0.1,
+        e.MOVED_DOWN: -0.1,
+        e.WAITED: -0.1,
+        e.INVALID_ACTION: -0.4,
         e.BOMB_EXPLODED: 0,
-        e.BOMB_DROPPED: -0.01,
-        e.CRATE_DESTROYED: 0.2,
-        e.COIN_FOUND: 0.2,
+        e.BOMB_DROPPED: -0.1,
+        # e.CRATE_DESTROYED: 0.02,
+        # e.COIN_FOUND: 0.02,
         e.COIN_COLLECTED: 0.6,
-        e.KILLED_OPPONENT: 2,
-        e.KILLED_SELF: -2,
+        e.KILLED_OPPONENT: 1,
+        e.KILLED_SELF: -1,
         e.GOT_KILLED: -1,
         e.OPPONENT_ELIMINATED: 2,
         e.SURVIVED_ROUND: 0.2,
         # custom events
-        e.DECREASED_DISTANCE: 0.04,
-        e.INCREASED_DISTANCE: -0.02,
-        e.BOMB_DROPPED_CORNER: -0.4,
-        e.BOMB_NEAR_CRATE: 0.08,
-        e.BOMB_NOT_NEAR_CRATE: -0.06,
-        e.MOVED_AWAY_FROM_BOMB: 0.08,
-        e.MOVED_TO_BOMB: -0.04,
-        e.DEAD_END: -0.2,
-        e.NOT_DEAD_END: 0.2
-        # PLACEHOLDER_EVENT: -.1  # idea: the custom event is bad
+        e.DECREASED_DISTANCE: 0.4,
+        e.INCREASED_DISTANCE: -0.2,
+        e.BOMB_DROPPED_CORNER: -0.8,
+        e.BOMB_NEAR_CRATE: 0.6,
+        e.BOMB_NOT_NEAR_CRATE: -0.4,
+        e.MOVED_AWAY_FROM_BOMB: 0.5,
+        e.MOVED_TO_BOMB: -0.3,
+        e.DEAD_END: -0.6,
+        e.NOT_DEAD_END: 0.6
     }
+
+    """game_rewards = {
+        e.WAITED: -0.4,
+        e.INVALID_ACTION: -0.8,
+        e.COIN_COLLECTED: 1,
+        e.KILLED_OPPONENT: 1,
+        e.KILLED_SELF: -1,
+        e.GOT_KILLED: -1,
+        # custom events
+        e.DECREASED_DISTANCE: 0.2,
+        e.INCREASED_DISTANCE: -0.04,
+        e.BOMB_DROPPED_CORNER: -1,
+        e.BOMB_NEAR_CRATE: 0.2,
+        e.BOMB_NOT_NEAR_CRATE: -0.2,
+        e.MOVED_AWAY_FROM_BOMB: 0.06,
+        e.MOVED_TO_BOMB: -0.1,
+        e.DEAD_END: -0.08,
+        e.NOT_DEAD_END: 0.07
+    }"""
     reward_sum = 0
     for event in events:
         if event in game_rewards:
@@ -223,7 +245,7 @@ def construct_q_table(state_count):
             else:
                 Q[s][a] = 0.2
 
-    with open('Q_sa_inc_state_2.npy', 'wb') as f:
+    with open('Q_sa_rule.npy', 'wb') as f:
         np.save(f, Q)
 
 
@@ -303,7 +325,7 @@ def dead_end_check(old_game_state, new_game_state, events):
 
                 loc_dummy = np.copy(new_own_location)
                 dead_end = True
-                for i in range(3):
+                for i in range(4):
                     if tuple(loc_dummy + turn_direction) in free_tiles or tuple(
                             loc_dummy - turn_direction) in free_tiles:
                         dead_end = False
@@ -314,4 +336,33 @@ def dead_end_check(old_game_state, new_game_state, events):
                     events.append('DEAD_END')
                 else:
                     events.append('NOT_DEAD_END')
+    return events
+
+
+def dead_end_check2(old_game_state, new_game_state, events):
+    new_own_location = np.asarray(new_game_state['self'][-1])
+    old_own_location = np.asarray(old_game_state['self'][-1])
+    feat = state_to_features(old_game_state)
+    chosen_direction = new_own_location - old_own_location
+    turn_direction = chosen_direction[::-1]
+    if np.sum(chosen_direction) != 0:
+        for bomb in old_game_state['bombs']:
+            bomb_location = bomb[0]
+            new_dist_bomb = np.sum(np.abs(bomb_location - new_own_location))
+            if new_dist_bomb < 5:
+                if (turn_direction == [1, 0]).all() and feat[15] == 1 and (bomb_location == new_own_location).any():
+                    events.append('DEAD_END')
+                    print(feat[15], (bomb_location == new_own_location).any())
+                elif (turn_direction == [-1, 0]).all() and feat[11] == 1 and (bomb_location == new_own_location).any():
+                    events.append('DEAD_END')
+                    print(feat[11], (bomb_location == new_own_location).any())
+                elif (turn_direction == [0, 1]).all() and feat[7] == 1 and (bomb_location == new_own_location).any():
+                    events.append('DEAD_END')
+                    print(feat[7], (bomb_location == new_own_location).any())
+                elif (turn_direction == [0, -1]).all() and feat[3] == 1 and (bomb_location == new_own_location).any():
+                    events.append('DEAD_END')
+                    print(feat[3], (bomb_location == new_own_location).any())
+                else:
+                    events.append('NOT_DEAD_END')
+                    print(feat[11], feat[15], feat[7], feat[3], (bomb_location == new_own_location).any())
     return events

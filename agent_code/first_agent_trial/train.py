@@ -43,14 +43,14 @@ def setup_training(self):
     self.alpha = 0.1
     self.gamma = 0.9
 
-    if not os.path.isfile("Q_sa.npy"):
-        self.logger.info("Setting up Q_sa function")
+    if not os.path.isfile("Q_sa_2.npy"):
+        self.logger.info("Setting up Q_sa_2 function")
         construct_q_table(TOTAL_STATES)
-        with open('Q_sa.npy', 'rb') as f:
+        with open('Q_sa_2.npy', 'rb') as f:
             self.q_sa = np.load(f, allow_pickle=True)
     else:
-        self.logger.info("Loading Q_sa function from saved state.")
-        with open('Q_sa.npy', 'rb') as f:
+        self.logger.info("Loading Q_sa_2 function from saved state.")
+        with open('Q_sa_2.npy', 'rb') as f:
             self.q_sa = np.load(f, allow_pickle=True)
     self.q_sa = self.q_sa.tolist()
     self.transitions = deque(maxlen=TRANSITION_HISTORY_SIZE)
@@ -112,7 +112,7 @@ def end_of_round(self, last_game_state: dict, last_action: str, events: List[str
     with open("my-saved-model.pt", "wb") as file:
         pickle.dump(self.model, file)
 
-    with open('Q_sa.npy', 'wb') as f:
+    with open('Q_sa_2.npy', 'wb') as f:
         np.save(f, self.q_sa)
 
 
@@ -128,24 +128,24 @@ def reward_from_events(self, events: List[str]) -> int:
         e.MOVED_RIGHT: -0.01,
         e.MOVED_UP: -0.01,
         e.MOVED_DOWN: -0.01,
-        e.WAITED: -0.03,
+        e.WAITED: -0.02,
         e.INVALID_ACTION: -0.08,
         e.BOMB_EXPLODED: 0,
         e.BOMB_DROPPED: -0.01,
         e.CRATE_DESTROYED: 0.2,
         e.COIN_FOUND: 0.2,
-        e.COIN_COLLECTED: 0.4,
+        e.COIN_COLLECTED: 0.6,
         e.KILLED_OPPONENT: 2,
         e.KILLED_SELF: -2,
         e.GOT_KILLED: -1,
         e.OPPONENT_ELIMINATED: 2,
         e.SURVIVED_ROUND: 0.2,
         # custom events
-        e.DECREASED_DISTANCE: 0.02,
+        e.DECREASED_DISTANCE: 0.04,
         e.INCREASED_DISTANCE: -0.02,
-        e.BOMB_DROPPED_CORNER: -0.2,
-        e.BOMB_NEAR_CRATE: 0.05,
-        e.MOVED_AWAY_FROM_BOMB: 0.04,
+        e.BOMB_DROPPED_CORNER: -0.4,
+        e.BOMB_NEAR_CRATE: 0.08,
+        e.MOVED_AWAY_FROM_BOMB: 0.08,
         e.MOVED_TO_BOMB: -0.04
         # PLACEHOLDER_EVENT: -.1  # idea: the custom event is bad
     }
@@ -166,13 +166,13 @@ def fit_models(self, old_game_state, action, new_game_state, reward):
 
     if new_game_state is None:
         PREV_Q[len(PREV_Q)] = [old_state_idx, action]
-        if reward < 0:
-            for old_ind in range(len(PREV_Q) - 2, len(PREV_Q)):
+        if reward > 0:
+            """for old_ind in range(len(PREV_Q) - 2, len(PREV_Q)):
                 model_old_q_value = self.q_sa[PREV_Q[old_ind][0]][PREV_Q[old_ind][1]]
                 old_q = self.alpha * (
                         reward / 3 - self.gamma * model_old_q_value)
                 self.q_sa[PREV_Q[old_ind][0]][PREV_Q[old_ind][1]] += old_q
-        else:
+        else:"""
             for old_ind in range(len(PREV_Q) - 1):
                 model_old_q_value = self.q_sa[PREV_Q[old_ind][0]][PREV_Q[old_ind][1]]
                 old_q = self.alpha * (
@@ -196,13 +196,13 @@ def fit_models(self, old_game_state, action, new_game_state, reward):
     self.q_sa[old_state_idx][action] += old_q_value
 
     """if self.q_sa[old_state_idx][action] < -10:
-        self.q_sa[old_state_idx][action] = -10"""
+        self.q_sa[old_state_idx][action] = -10
     if self.q_sa[old_state_idx][action] > 1:
         for act in ACTIONS:
             if self.q_sa[old_state_idx][act] > 1:
                 self.q_sa[old_state_idx][act] = self.q_sa[old_state_idx][act] / self.q_sa[old_state_idx][action]
     elif 0 < self.q_sa[old_state_idx][action] < 10e-7:
-        self.q_sa[old_state_idx][action] = 0
+        self.q_sa[old_state_idx][action] = 0"""
 
 
 def construct_q_table(state_count):
@@ -211,11 +211,11 @@ def construct_q_table(state_count):
         Q[s] = {}
         for a in ACTIONS:
             if a == "WAIT" or a == "BOMB":
-                Q[s][a] = 0
+                Q[s][a] = 0.2
             else:
-                Q[s][a] = 0
+                Q[s][a] = 0.2
 
-    with open('Q_sa.npy', 'wb') as f:
+    with open('Q_sa_2.npy', 'wb') as f:
         np.save(f, Q)
 
 

@@ -6,7 +6,7 @@ import numpy as np
 
 ACTIONS = ['UP', 'RIGHT', 'DOWN', 'LEFT', 'WAIT', 'BOMB']
 STATE = 13
-EXPLORATION_RATE = 0.03
+EXPLORATION_RATE = 0.1
 EXPLORE_COUNT = 0
 EXPLOIT_COUNT = 0
 
@@ -34,6 +34,11 @@ def setup(self):
         self.logger.info("Loading model from saved state.")
         with open("my-saved-model.pt", "rb") as file:
             self.model = pickle.load(file)
+
+    self.logger.info("Loading Q_sa_2 function from saved state.")
+    with open('Q_sa.npy', 'rb') as f:
+        self.q_sa = np.load(f, allow_pickle=True)
+    self.q_sa = self.q_sa.tolist()
 
 
 def act(self, game_state: dict) -> str:
@@ -152,10 +157,10 @@ def state_to_features(game_state: dict) -> np.array:
     left_channel = [self_cor_channel[1], self_cor_channel[0] - 1]
     right_channel = [self_cor_channel[1], self_cor_channel[0] + 1]
 
-    left = cor_states(game_state, left_channel)
-    right = cor_states(game_state, right_channel)
-    up = cor_states(game_state, up_channel)
-    down = cor_states(game_state, down_channel)
+    left = cor_states(game_state, left_channel, 'left')
+    right = cor_states(game_state, right_channel, 'right')
+    up = cor_states(game_state, up_channel, 'up')
+    down = cor_states(game_state, down_channel, 'down')
     # self_ch = cor_states(game_state, self_cor_channel) # no need to check current position
 
     stacked_channels = np.array([left] + [right] + [up] + [down] + [game_state["self"][2]])
@@ -164,7 +169,7 @@ def state_to_features(game_state: dict) -> np.array:
     return stacked_channels
 
 
-def cor_states(game_state, coordinates):
+def cor_states(game_state, coordinates, direction_str):
     """
         Checks the given coordinates if there is a coin, if there is a wall or crate or free, and if there is a danger.
         Danger also contains walls as well.
@@ -177,7 +182,7 @@ def cor_states(game_state, coordinates):
     coins = np.array(game_state["coins"]).T
     bombs = np.array(game_state["bombs"]).T
     explosion = np.array(game_state["explosion_map"])
-    state_bits = np.zeros(3)
+    state_bits = np.zeros(4)
     if field_channel[coordinates[0], coordinates[1]] == 1:
         state_bits[1] = 1
     elif field_channel[coordinates[0], coordinates[1]] == 0:
@@ -191,27 +196,78 @@ def cor_states(game_state, coordinates):
     if bombs.size != 0:
         for idx in range(len(bombs[0])):
             check = list(bombs[idx][0])
-            if bombs[1] == 1:
-                if (check[0] == coordinates[1] and np.abs(check[1] - coordinates[0]) < 3) or (check[1] == coordinates[0] and np.abs(
-                            check[0] - coordinates[1]) < 3):
+            if bombs[1] <= 1:
+                if (check[0] == coordinates[1] and np.abs(check[1] - coordinates[0]) < 3) or (
+                        check[1] == coordinates[0] and np.abs(
+                    check[0] - coordinates[1]) < 3):
                     state_bits[2] = 1
             elif bombs[1] == 2:
-                if (check[0] == coordinates[1] and np.abs(check[1] - coordinates[0]) < 2) or (check[1] == coordinates[0] and np.abs(
-                            check[0] - coordinates[1]) < 2):
+                if (check[0] == coordinates[1] and np.abs(check[1] - coordinates[0]) < 2) or (
+                        check[1] == coordinates[0] and np.abs(
+                    check[0] - coordinates[1]) < 2):
                     state_bits[2] = 1
             if check[0] == coordinates[1] and check[1] == coordinates[0]:
                 state_bits[2] = 1
     if explosion[coordinates[1], coordinates[0]] != 0:
         state_bits[2] = 1
+
+    if direction_str == 'left' and (coordinates[1] != 0 and coordinates[1] != 1) and (
+            (field_channel[coordinates[0] - 1, coordinates[1]] != 0 and field_channel[
+                coordinates[0], coordinates[1] - 1] != 0 and field_channel[
+                 coordinates[0] + 1, coordinates[1]] != 0) or (
+                    field_channel[coordinates[0] - 1, coordinates[1] - 1] != 0 and
+                    field_channel[coordinates[0], coordinates[1] - 2] != 0 and field_channel[
+                        coordinates[0] + 1, coordinates[1] - 1] != 0)):
+        state_bits[3] = 1
+    elif direction_str == 'left' and coordinates[1] == 1 and (field_channel[coordinates[0] - 1, coordinates[1]] != 0 and field_channel[
+                coordinates[0], coordinates[1] - 1] != 0 and field_channel[
+                 coordinates[0] + 1, coordinates[1]] != 0):
+        state_bits[3] = 1
+    elif direction_str == 'right' and (coordinates[1] != 16 and coordinates[1] != 15) and ((field_channel[coordinates[0] - 1, coordinates[1]] != 0 and field_channel[
+                coordinates[0], coordinates[1] + 1] != 0 and field_channel[
+                 coordinates[0] + 1, coordinates[1]] != 0) or (
+                    field_channel[coordinates[0] - 1, coordinates[1] + 1] != 0 and
+                    field_channel[coordinates[0], coordinates[1] + 2] != 0 and field_channel[
+                        coordinates[0] + 1, coordinates[1] + 1] != 0)):
+        state_bits[3] = 1
+    elif direction_str == 'right' and coordinates[1] == 15 and (field_channel[coordinates[0] - 1, coordinates[1]] != 0 and field_channel[
+                coordinates[0], coordinates[1] + 1] != 0 and field_channel[
+                 coordinates[0] + 1, coordinates[1]] != 0):
+        state_bits[3] = 1
+    elif direction_str == 'up' and (coordinates[0] != 0 and coordinates[0] != 1) and (
+            (field_channel[coordinates[0] - 1, coordinates[1]] != 0 and field_channel[
+                coordinates[0], coordinates[1] + 1] != 0 and field_channel[
+                 coordinates[0], coordinates[1] - 1] != 0) or (
+                    field_channel[coordinates[0] - 1, coordinates[1] + 1] != 0 and
+                    field_channel[coordinates[0] - 2, coordinates[1]] != 0 and field_channel[
+                        coordinates[0] - 1, coordinates[1] + 1] != 0)):
+        state_bits[3] = 1
+    elif direction_str == 'up' and coordinates[0] == 1 and (
+            field_channel[coordinates[0] - 1, coordinates[1]] != 0 and field_channel[
+        coordinates[0], coordinates[1] + 1] != 0 and field_channel[coordinates[0], coordinates[1] - 1] != 0):
+        state_bits[3] = 1
+    elif direction_str == 'down' and (coordinates[0] != 16 and coordinates[0] != 15) and (
+            (field_channel[coordinates[0] + 1, coordinates[1]] != 0 and field_channel[
+                coordinates[0], coordinates[1] + 1] != 0 and field_channel[
+                 coordinates[0], coordinates[1] - 1] != 0) or (
+                    field_channel[coordinates[0] + 1, coordinates[1] + 1] != 0 and
+                    field_channel[coordinates[0] + 2, coordinates[1]] != 0 and field_channel[
+                        coordinates[0] + 1, coordinates[1] + 1] != 0)):
+        state_bits[3] = 1
+    elif direction_str == 'down' and coordinates[0] == 15 and (
+            field_channel[coordinates[0] + 1, coordinates[1]] != 0 and field_channel[
+        coordinates[0], coordinates[1] + 1] != 0 and field_channel[coordinates[0], coordinates[1] - 1] != 0):
+        state_bits[3] = 1
+
     return state_bits
 
 
 def features_to_index(features):
-    return 2 ** 12 * features[0] + 2 ** 11 * features[1] + 2 ** 10 * features[2] + 2 ** 9 * features[3] + 2 ** 8 * \
-           features[4] + \
-           2 ** 7 * features[5] + 2 ** 6 * features[6] + 2 ** 5 * features[7] + 2 ** 4 * features[8] + 2 ** 3 * \
-           features[9] + 2 ** 2 * features[10] + \
-           2 ** 1 * features[11] + 2 ** 0 * features[12]
+    state_no = STATE
+    index = 0
+    for n in range(state_no):
+        index += 2 ** (state_no - n - 1) * features[n]
+    return index
 
 
 def get_explosion_xys(start, map, bomb_power=3):
