@@ -352,17 +352,12 @@ def dead_end_check2(old_game_state, new_game_state, events):
             if new_dist_bomb < 5:
                 if (turn_direction == [1, 0]).all() and feat[15] == 1 and (bomb_location == new_own_location).any():
                     events.append('DEAD_END')
-                    print(feat[15], (bomb_location == new_own_location).any())
                 elif (turn_direction == [-1, 0]).all() and feat[11] == 1 and (bomb_location == new_own_location).any():
                     events.append('DEAD_END')
-                    print(feat[11], (bomb_location == new_own_location).any())
                 elif (turn_direction == [0, 1]).all() and feat[7] == 1 and (bomb_location == new_own_location).any():
                     events.append('DEAD_END')
-                    print(feat[7], (bomb_location == new_own_location).any())
                 elif (turn_direction == [0, -1]).all() and feat[3] == 1 and (bomb_location == new_own_location).any():
                     events.append('DEAD_END')
-                    print(feat[3], (bomb_location == new_own_location).any())
                 else:
                     events.append('NOT_DEAD_END')
-                    print(feat[11], feat[15], feat[7], feat[3], (bomb_location == new_own_location).any())
     return events
