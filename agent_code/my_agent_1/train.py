@@ -80,7 +80,8 @@ def game_events_occurred(self, old_game_state: dict, self_action: str, new_game_
         events.append(BOMB_DROPPED_CORNER)
     if old_game_state is not None:
         events = bomb_check(new_game_state, self_action, events)
-        events = coin_dist_check(old_game_state, new_game_state, events)
+        if np.array(new_game_state['coins']).T.size > 0:
+            events = coin_dist_check(old_game_state, new_game_state, events)
         if np.array(new_game_state['bombs']).T.size > 0:
             events = bomb_dist_check(old_game_state, new_game_state, events)
             events = dead_end_check2(old_game_state, new_game_state, events)
@@ -89,7 +90,9 @@ def game_events_occurred(self, old_game_state: dict, self_action: str, new_game_
 
     reward = reward_from_events(self, events)
     fit_models(self, old_game_state, self_action, new_game_state, reward)
-
+    if old_game_state is not None:
+        self.logger.debug(f"Q after reward: {list(self.q_sa[features_to_index(state_to_features(old_game_state))].values())}")
+        self.logger.debug(f"Index: {features_to_index(state_to_features(old_game_state))}")
     # state_to_features is defined in callbacks.py
     self.transitions.append(
         Transition(state_to_features(old_game_state), self_action, state_to_features(new_game_state), reward))
@@ -138,8 +141,8 @@ def reward_from_events(self, events: List[str]) -> int:
         e.MOVED_UP: -0.1,
         e.MOVED_DOWN: -0.1,
         e.WAITED: -0.1,
-        e.INVALID_ACTION: -0.4,
-        e.BOMB_EXPLODED: 0,
+        e.INVALID_ACTION: -0.8,
+        e.BOMB_EXPLODED: 0.14,
         e.BOMB_DROPPED: -0.1,
         # e.CRATE_DESTROYED: 0.02,
         # e.COIN_FOUND: 0.02,
@@ -156,29 +159,10 @@ def reward_from_events(self, events: List[str]) -> int:
         e.BOMB_NEAR_CRATE: 0.6,
         e.BOMB_NOT_NEAR_CRATE: -0.4,
         e.MOVED_AWAY_FROM_BOMB: 0.5,
-        e.MOVED_TO_BOMB: -0.3,
+        e.MOVED_TO_BOMB: -0.6,
         e.DEAD_END: -0.6,
         e.NOT_DEAD_END: 0.6
     }
-
-    """game_rewards = {
-        e.WAITED: -0.4,
-        e.INVALID_ACTION: -0.8,
-        e.COIN_COLLECTED: 1,
-        e.KILLED_OPPONENT: 1,
-        e.KILLED_SELF: -1,
-        e.GOT_KILLED: -1,
-        # custom events
-        e.DECREASED_DISTANCE: 0.2,
-        e.INCREASED_DISTANCE: -0.04,
-        e.BOMB_DROPPED_CORNER: -1,
-        e.BOMB_NEAR_CRATE: 0.2,
-        e.BOMB_NOT_NEAR_CRATE: -0.2,
-        e.MOVED_AWAY_FROM_BOMB: 0.06,
-        e.MOVED_TO_BOMB: -0.1,
-        e.DEAD_END: -0.08,
-        e.NOT_DEAD_END: 0.07
-    }"""
     reward_sum = 0
     for event in events:
         if event in game_rewards:
@@ -210,7 +194,7 @@ def fit_models(self, old_game_state, action, new_game_state, reward):
                 self.q_sa[PREV_Q[old_ind][0]][PREV_Q[old_ind][1]] += old_q
         model_a_old_q_value = self.q_sa[old_state_idx][action]
         old_q_value = self.alpha * (
-                reward / len(PREV_Q) - model_a_old_q_value)
+                reward / 3 - model_a_old_q_value)
     else:
         new_state_idx = features_to_index(state_to_features(new_game_state))
         if reward != -0.08:
@@ -254,6 +238,7 @@ def coin_dist_check(old_game_state, new_game_state, events):
     new_coins = np.array(new_game_state["coins"]).T
     old_self_cor_channel = np.array(old_game_state["self"][3]).T
     new_self_cor_channel = np.array(new_game_state["self"][3]).T
+    old_cor_turned = old_self_cor_channel.T
     if old_coins.size != 0 and new_coins.size != 0:
         if old_coins.size > new_coins.size:
             max_coin = old_coins
@@ -262,20 +247,22 @@ def coin_dist_check(old_game_state, new_game_state, events):
             max_coin = new_coins
             min_coin = old_coins
         for ind in range(len(max_coin[0])):
-            for index in range(len(min_coin[0])):
-                if max_coin[0, ind] == min_coin[0, index] and max_coin[1, ind] == min_coin[1, index]:
-                    max_dist = np.abs((max_coin[0, ind] - old_self_cor_channel[1])) + np.abs(
-                        (max_coin[1, ind] - old_self_cor_channel[0]))
-                    min_dist = np.abs((min_coin[0, index] - new_self_cor_channel[1])) + np.abs(
-                        (min_coin[1, index] - new_self_cor_channel[0]))
-                    if min_dist < max_dist and max_coin.all() == old_coins.all():
-                        events.append(DECREASED_DISTANCE)
-                    elif min_dist > max_dist and max_coin.all() == old_coins.all():
-                        events.append(INCREASED_DISTANCE)
-                    elif min_dist < max_dist and min_coin.all() == old_coins.all():
-                        events.append(INCREASED_DISTANCE)
-                    elif min_dist > max_dist and min_coin.all() == old_coins.all():
-                        events.append(DECREASED_DISTANCE)
+            old_dist_coin = np.sum(np.abs(max_coin[:, ind] - old_cor_turned))
+            if old_dist_coin < 8:
+                for index in range(len(min_coin[0])):
+                    if max_coin[0, ind] == min_coin[0, index] and max_coin[1, ind] == min_coin[1, index]:
+                        max_dist = np.abs((max_coin[0, ind] - old_self_cor_channel[1])) + np.abs(
+                            (max_coin[1, ind] - old_self_cor_channel[0]))
+                        min_dist = np.abs((min_coin[0, index] - new_self_cor_channel[1])) + np.abs(
+                            (min_coin[1, index] - new_self_cor_channel[0]))
+                        if min_dist < max_dist and max_coin.all() == old_coins.all():
+                            events.append(DECREASED_DISTANCE)
+                        elif min_dist > max_dist and max_coin.all() == old_coins.all():
+                            events.append(INCREASED_DISTANCE)
+                        elif min_dist < max_dist and min_coin.all() == old_coins.all():
+                            events.append(INCREASED_DISTANCE)
+                        elif min_dist > max_dist and min_coin.all() == old_coins.all():
+                            events.append(DECREASED_DISTANCE)
     return events
 
 
@@ -307,7 +294,7 @@ def bomb_dist_check(old_game_state, new_game_state, events):
         if old_dist_bomb < 5:
             if new_dist_bomb > old_dist_bomb:
                 events.append('MOVED_AWAY_FROM_BOMB')
-            else:
+            elif new_dist_bomb < old_dist_bomb:
                 events.append('MOVED_TO_BOMB')
     return events
 
@@ -345,11 +332,11 @@ def dead_end_check2(old_game_state, new_game_state, events):
     feat = state_to_features(old_game_state)
     chosen_direction = new_own_location - old_own_location
     turn_direction = chosen_direction[::-1]
-    if np.sum(chosen_direction) != 0:
-        for bomb in old_game_state['bombs']:
-            bomb_location = bomb[0]
-            new_dist_bomb = np.sum(np.abs(bomb_location - new_own_location))
-            if new_dist_bomb < 5:
+    for bomb in old_game_state['bombs']:
+        bomb_location = bomb[0]
+        new_dist_bomb = np.sum(np.abs(bomb_location - new_own_location))
+        if new_dist_bomb < 5:
+            if np.sum(chosen_direction) != 0:
                 if (turn_direction == [1, 0]).all() and feat[15] == 1 and (bomb_location == new_own_location).any():
                     events.append('DEAD_END')
                 elif (turn_direction == [-1, 0]).all() and feat[11] == 1 and (bomb_location == new_own_location).any():
@@ -360,4 +347,6 @@ def dead_end_check2(old_game_state, new_game_state, events):
                     events.append('DEAD_END')
                 else:
                     events.append('NOT_DEAD_END')
+            elif (turn_direction == [0, 0]).all() and (bomb_location != new_own_location).all():
+                events.append('NOT_DEAD_END')
     return events

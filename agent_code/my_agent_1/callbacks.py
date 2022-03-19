@@ -6,7 +6,7 @@ from random import shuffle
 
 ACTIONS = ['UP', 'RIGHT', 'DOWN', 'LEFT', 'WAIT', 'BOMB']
 STATE = 17
-EXPLORATION_RATE = 0.1
+EXPLORATION_RATE = 0.05
 EXPLORE_COUNT = 0
 EXPLOIT_COUNT = 0
 
@@ -54,64 +54,20 @@ def act(self, game_state: dict) -> str:
     global EXPLOIT_COUNT
     q = self.q_sa
     cond = np.max(list(q[features_to_index(state_to_features(game_state))].values()))
-    if cond < self.exploration_rate:
-        # explore
-        cordin = np.array(game_state['self'][3])
-        x = cordin[1]
-        y = cordin[0]
-        arena = np.array(game_state['field']).T
-        bomb_map = np.ones(arena.shape) * 5
-        bomb_xys = [xy for (xy, t) in game_state['bombs']]
-        if bomb_xys:
-            bomb_xys = [(bomb_xys[0][1], bomb_xys[0][0])]
 
-        for (yb, xb), t in game_state['bombs']:
-            for (i, j) in [(xb + h, yb) for h in range(-3, 4)] + [(xb, yb + h) for h in range(-3, 4)]:
-                if (0 < i < bomb_map.shape[0]) and (0 < j < bomb_map.shape[1]):
-                    bomb_map[i, j] = min(bomb_map[i, j], t)
-
-        self.logger.debug("Exploring random action")
-        self.logger.debug(f"Random Q: {list(q[features_to_index(state_to_features(game_state))].values())}")
-        self.logger.debug(f"Explore index: {features_to_index(state_to_features(game_state))}")
-
-        # determine valid actions
-        directions = [(x, y), (x + 1, y), (x - 1, y), (x, y + 1), (x, y - 1)]
-        valid_tiles, valid_actions = [], []
-        for d in directions:
-            d_trans = (d[1], d[0])
-            if ((arena[d] == 0) and
-                    (game_state['explosion_map'][d_trans] < 1) and
-                    (bomb_map[d] > 0) and
-                    (not d in bomb_xys)):
-                valid_tiles.append(d)
-        if (x - 1, y) in valid_tiles: valid_actions.append('UP')
-        if (x + 1, y) in valid_tiles: valid_actions.append('DOWN')
-        if (x, y - 1) in valid_tiles: valid_actions.append('LEFT')
-        if (x, y + 1) in valid_tiles: valid_actions.append('RIGHT')
-        if (x, y) in valid_tiles: valid_actions.append('WAIT')
-        if game_state['self'][2]: valid_actions.append('BOMB')
-
-        self.logger.debug(f'Valid actions: {valid_actions}')
-        if len(valid_actions) == 0:
-            action = 'WAIT'
-            EXPLORE_COUNT += 1
-        else:
-            max_act = ACTIONS[np.argmax(list(q[features_to_index(state_to_features(game_state))].values()))]
-            if max_act in valid_actions and cond > 0:
-                EXPLOIT_COUNT += 1
-                action = max_act
-            else:
-                EXPLORE_COUNT += 1
-                action = np.random.choice(valid_actions)
+    p = np.random.random()
+    if p < EXPLORATION_RATE:
+        self.logger.debug("Exploring")
+        EXPLORE_COUNT += 1
+        action = np.random.choice(ACTIONS)
     else:
-        # exploit
-        EXPLOIT_COUNT += 1
         self.logger.debug("Exploiting (predict actions)")
-        self.logger.debug(f"Q: {list(q[features_to_index(state_to_features(game_state))].values())}")
-        self.logger.debug(f"Index: {features_to_index(state_to_features(game_state))}")
+        EXPLOIT_COUNT += 1
         action = ACTIONS[np.argmax(list(q[features_to_index(state_to_features(game_state))].values()))]
 
     self.logger.debug(f"Explore count: {EXPLORE_COUNT}, Exploit count: {EXPLOIT_COUNT}")
+    self.logger.debug(f"Q: {list(q[features_to_index(state_to_features(game_state))].values())}")
+    self.logger.debug(f"Index: {features_to_index(state_to_features(game_state))}")
     self.logger.debug(f"Took action {action}")
     return action
 
@@ -133,12 +89,6 @@ def state_to_features(game_state: dict) -> np.array:
     # This is the dict before the game begins and after it ends
     if game_state is None:
         return None
-
-    # For example, you could construct several channels of equal shape, ...
-    # channels = []
-    # channels.append(...)
-    # concatenate them as a feature tensor (they must have the same shape), ...
-    # stacked_channels = np.stack(channels)
 
     self_cor_channel = np.array(game_state["self"][3])
     down_channel = [self_cor_channel[1] + 1, self_cor_channel[0]]
@@ -184,16 +134,14 @@ def cor_states(game_state, coordinates, direction_str):
                 state_bits[0] = 1
     if bombs.size != 0:
         for idx in range(len(bombs[0])):
-            check = list(bombs[idx][0])
-            if bombs[1] <= 1:
+            check = list(bombs[0][idx])
+            if bombs[1][idx] < 1:
                 if (check[0] == coordinates[1] and np.abs(check[1] - coordinates[0]) < 3) or (
-                        check[1] == coordinates[0] and np.abs(
-                    check[0] - coordinates[1]) < 3):
+                        check[1] == coordinates[0] and np.abs(check[0] - coordinates[1]) < 3):
                     state_bits[2] = 1
-            elif bombs[1] == 2:
+            elif bombs[1][idx] == 1:
                 if (check[0] == coordinates[1] and np.abs(check[1] - coordinates[0]) < 2) or (
-                        check[1] == coordinates[0] and np.abs(
-                    check[0] - coordinates[1]) < 2):
+                        check[1] == coordinates[0] and np.abs(check[0] - coordinates[1]) < 2):
                     state_bits[2] = 1
             if check[0] == coordinates[1] and check[1] == coordinates[0]:
                 state_bits[2] = 1
@@ -209,8 +157,8 @@ def cor_states(game_state, coordinates, direction_str):
                         coordinates[0] + 1, coordinates[1]] != 0 and
                     field_channel[coordinates[0] - 1, coordinates[1] - 1] != 0 and
                     field_channel[coordinates[0], coordinates[1] - 2] != 0 and field_channel[
-                        coordinates[0] + 1, coordinates[1] - 1] != 0)):
-        """or (
+                        coordinates[0] + 1, coordinates[1] - 1] != 0)
+        or (
                     field_channel[coordinates[0] - 1, coordinates[1]] != 0 and
                     field_channel[
                         coordinates[0] + 1, coordinates[1]] != 0 and
@@ -218,7 +166,7 @@ def cor_states(game_state, coordinates, direction_str):
                         coordinates[0] + 1, coordinates[1] - 1] != 0 and
                     field_channel[coordinates[0] - 1, coordinates[1] - 2] != 0 and
                     field_channel[coordinates[0], coordinates[1] - 3] != 0 and field_channel[
-                        coordinates[0] + 1, coordinates[1] - 2] != 0)):"""
+                        coordinates[0] + 1, coordinates[1] - 2] != 0)):
         state_bits[3] = 1
     elif direction_str == 'left' and (coordinates[1] == 1 or coordinates[1] == 2) and (
             field_channel[coordinates[0] - 1, coordinates[1]] != 0 and field_channel[
@@ -233,15 +181,15 @@ def cor_states(game_state, coordinates, direction_str):
                 coordinates[0] + 1, coordinates[1]] != 0 and
                     field_channel[coordinates[0] - 1, coordinates[1] + 1] != 0 and
                     field_channel[coordinates[0], coordinates[1] + 2] != 0 and field_channel[
-                        coordinates[0] + 1, coordinates[1] + 1] != 0)):
-        """or (
+                        coordinates[0] + 1, coordinates[1] + 1] != 0)
+        or (
                     field_channel[coordinates[0] - 1, coordinates[1]] != 0 and field_channel[
                 coordinates[0] + 1, coordinates[1]] != 0 and
                     field_channel[coordinates[0] - 1, coordinates[1] + 1] != 0 and field_channel[
                         coordinates[0] + 1, coordinates[1] + 1] != 0 and
                     field_channel[coordinates[0] - 1, coordinates[1] + 2] != 0 and
                     field_channel[coordinates[0], coordinates[1] + 3] != 0 and field_channel[
-                        coordinates[0] + 1, coordinates[1] + 2] != 0)):"""
+                        coordinates[0] + 1, coordinates[1] + 2] != 0)):
         state_bits[3] = 1
     elif direction_str == 'right' and (coordinates[1] == 15 or coordinates[1] == 14) and (
             field_channel[coordinates[0] - 1, coordinates[1]] != 0 and field_channel[
@@ -260,8 +208,8 @@ def cor_states(game_state, coordinates, direction_str):
                                                                field_channel[
                                                                    coordinates[0] - 2, coordinates[1]] != 0 and
                                                                field_channel[
-                                                                   coordinates[0] - 1, coordinates[1] - 1] != 0)):
-        """or (
+                                                                   coordinates[0] - 1, coordinates[1] - 1] != 0)
+        or (
                     field_channel[
                         coordinates[0], coordinates[1] + 1] != 0 and
                     field_channel[
@@ -272,7 +220,7 @@ def cor_states(game_state, coordinates, direction_str):
                         coordinates[0] - 1, coordinates[1] - 1] != 0 and
                     field_channel[coordinates[0] - 2, coordinates[1] + 1] != 0 and
                     field_channel[coordinates[0] - 3, coordinates[1]] != 0 and field_channel[
-                        coordinates[0] - 2, coordinates[1] - 1] != 0)):"""
+                        coordinates[0] - 2, coordinates[1] - 1] != 0)):
         state_bits[3] = 1
     elif direction_str == 'up' and (coordinates[0] == 1 or coordinates[0] == 2) and (
             field_channel[coordinates[0] - 1, coordinates[1]] != 0 and field_channel[
@@ -282,19 +230,23 @@ def cor_states(game_state, coordinates, direction_str):
             (field_channel[coordinates[0] + 1, coordinates[1]] != 0 and field_channel[
                 coordinates[0], coordinates[1] + 1] != 0 and field_channel[
                  coordinates[0], coordinates[1] - 1] != 0) or (field_channel[
-                coordinates[0], coordinates[1] + 1] != 0 and field_channel[
-                 coordinates[0], coordinates[1] - 1] != 0 and
-                    field_channel[coordinates[0] + 1, coordinates[1] + 1] != 0 and
-                    field_channel[coordinates[0] + 2, coordinates[1]] != 0 and field_channel[
-                        coordinates[0] + 1, coordinates[1] - 1] != 0)):
-        """or (field_channel[
+                                                                   coordinates[0], coordinates[1] + 1] != 0 and
+                                                               field_channel[
+                                                                   coordinates[0], coordinates[1] - 1] != 0 and
+                                                               field_channel[
+                                                                   coordinates[0] + 1, coordinates[1] + 1] != 0 and
+                                                               field_channel[
+                                                                   coordinates[0] + 2, coordinates[1]] != 0 and
+                                                               field_channel[
+                                                                   coordinates[0] + 1, coordinates[1] - 1] != 0)
+        or (field_channel[
                 coordinates[0], coordinates[1] + 1] != 0 and field_channel[
                  coordinates[0], coordinates[1] - 1] != 0 and
                     field_channel[coordinates[0] + 1, coordinates[1] + 1] != 0 and field_channel[
                         coordinates[0] + 1, coordinates[1] - 1] != 0 and
                     field_channel[coordinates[0] + 2, coordinates[1] + 1] != 0 and
                     field_channel[coordinates[0] + 3, coordinates[1]] != 0 and field_channel[
-                        coordinates[0] + 2, coordinates[1] + 1] != 0)):"""
+                        coordinates[0] + 2, coordinates[1] - 1] != 0)):
         state_bits[3] = 1
     elif direction_str == 'down' and (coordinates[0] == 15 or coordinates[0] == 14) and (
             field_channel[coordinates[0] + 1, coordinates[1]] != 0 and field_channel[
