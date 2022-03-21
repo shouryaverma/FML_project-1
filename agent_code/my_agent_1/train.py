@@ -153,7 +153,7 @@ def reward_from_events(self, events: List[str]) -> int:
         e.OPPONENT_ELIMINATED: 2,
         e.SURVIVED_ROUND: 0.2,
         # custom events
-        e.DECREASED_DISTANCE: 0.4,
+        e.DECREASED_DISTANCE: 0.2,
         e.INCREASED_DISTANCE: -0.2,
         e.BOMB_DROPPED_CORNER: -0.8,
         e.BOMB_NEAR_CRATE: 0.6,
@@ -248,7 +248,7 @@ def coin_dist_check(old_game_state, new_game_state, events):
             min_coin = old_coins
         for ind in range(len(max_coin[0])):
             old_dist_coin = np.sum(np.abs(max_coin[:, ind] - old_cor_turned))
-            if old_dist_coin < 8:
+            if old_dist_coin < 5:
                 for index in range(len(min_coin[0])):
                     if max_coin[0, ind] == min_coin[0, index] and max_coin[1, ind] == min_coin[1, index]:
                         max_dist = np.abs((max_coin[0, ind] - old_self_cor_channel[1])) + np.abs(
