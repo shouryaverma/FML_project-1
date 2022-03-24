@@ -46,14 +46,14 @@ def setup_training(self):
     self.alpha = 0.1
     self.gamma = 0.8
 
-    if not os.path.isfile("Q_sa_rule.npy"):
-        self.logger.info("Setting up Q_sa_rule function")
+    if not os.path.isfile("Q_sa_sum.npy"):
+        self.logger.info("Setting up Q_sa_sum function")
         construct_q_table(TOTAL_STATES)
-        with open('Q_sa_rule.npy', 'rb') as f:
+        with open('Q_sa_sum.npy', 'rb') as f:
             self.q_sa = np.load(f, allow_pickle=True)
     else:
-        self.logger.info("Loading Q_sa_rule function from saved state.")
-        with open('Q_sa_rule.npy', 'rb') as f:
+        self.logger.info("Loading Q_sa_sum function from saved state.")
+        with open('Q_sa_sum.npy', 'rb') as f:
             self.q_sa = np.load(f, allow_pickle=True)
     self.q_sa = self.q_sa.tolist()
     self.transitions = deque(maxlen=TRANSITION_HISTORY_SIZE)
@@ -124,7 +124,7 @@ def end_of_round(self, last_game_state: dict, last_action: str, events: List[str
     with open("my-saved-model.pt", "wb") as file:
         pickle.dump(self.model, file)
 
-    with open('Q_sa_rule.npy', 'wb') as f:
+    with open('Q_sa_sum.npy', 'wb') as f:
         np.save(f, self.q_sa)
 
 
@@ -146,21 +146,21 @@ def reward_from_events(self, events: List[str]) -> int:
         e.BOMB_DROPPED: -0.1,
         # e.CRATE_DESTROYED: 0.02,
         # e.COIN_FOUND: 0.02,
-        e.COIN_COLLECTED: 0.6,
+        e.COIN_COLLECTED: 0.5,
         e.KILLED_OPPONENT: 1,
         e.KILLED_SELF: -1,
         e.GOT_KILLED: -1,
         e.OPPONENT_ELIMINATED: 2,
         e.SURVIVED_ROUND: 0.2,
         # custom events
-        e.DECREASED_DISTANCE: 0.2,
+        e.DECREASED_DISTANCE: 0.3,
         e.INCREASED_DISTANCE: -0.2,
         e.BOMB_DROPPED_CORNER: -0.8,
         e.BOMB_NEAR_CRATE: 0.6,
-        e.BOMB_NOT_NEAR_CRATE: -0.4,
+        e.BOMB_NOT_NEAR_CRATE: -0.5,
         e.MOVED_AWAY_FROM_BOMB: 0.5,
         e.MOVED_TO_BOMB: -0.6,
-        e.DEAD_END: -0.6,
+        e.DEAD_END: -0.7,
         e.NOT_DEAD_END: 0.6
     }
     reward_sum = 0
@@ -209,6 +209,32 @@ def fit_models(self, old_game_state, action, new_game_state, reward):
 
     self.q_sa[old_state_idx][action] += old_q_value
 
+    if old_game_state is not None:
+        if action == 'LEFT':
+            left_state = state_to_features(old_game_state)[:4]
+            right_state = state_to_features(old_game_state)[4:8]
+            rotated_state = np.array([right_state] + [left_state] + [state_to_features(old_game_state)[8:]])
+            rotated_state = np.concatenate(rotated_state, axis=None)
+            self.q_sa[features_to_index(rotated_state)]['RIGHT'] += old_q_value
+        elif action == 'RIGHT':
+            left_state = state_to_features(old_game_state)[:4]
+            right_state = state_to_features(old_game_state)[4:8]
+            rotated_state = np.array([right_state] + [left_state] + [state_to_features(old_game_state)[8:]])
+            rotated_state = np.concatenate(rotated_state, axis=None)
+            self.q_sa[features_to_index(rotated_state)]['LEFT'] += old_q_value
+        elif action == 'UP':
+            up_state = state_to_features(old_game_state)[8:12]
+            down_state = state_to_features(old_game_state)[12:16]
+            rotated_state = np.array([state_to_features(old_game_state)[:8]] + [down_state] + [up_state] + [state_to_features(old_game_state)[16]])
+            rotated_state = np.concatenate(rotated_state, axis=None)
+            self.q_sa[features_to_index(rotated_state)]['DOWN'] += old_q_value
+        elif action == 'DOWN':
+            up_state = state_to_features(old_game_state)[8:12]
+            down_state = state_to_features(old_game_state)[12:16]
+            rotated_state = np.array([state_to_features(old_game_state)[:8]] + [down_state] + [up_state] + [state_to_features(old_game_state)[16]])
+            rotated_state = np.concatenate(rotated_state, axis=None)
+            self.q_sa[features_to_index(rotated_state)]['UP'] += old_q_value
+
     """if self.q_sa[old_state_idx][action] < -10:
         self.q_sa[old_state_idx][action] = -10"""
     if self.q_sa[old_state_idx][action] > 1:
@@ -229,7 +255,7 @@ def construct_q_table(state_count):
             else:
                 Q[s][a] = 0.2
 
-    with open('Q_sa_rule.npy', 'wb') as f:
+    with open('Q_sa_sum.npy', 'wb') as f:
         np.save(f, Q)
 
 
@@ -248,13 +274,13 @@ def coin_dist_check(old_game_state, new_game_state, events):
             min_coin = old_coins
         for ind in range(len(max_coin[0])):
             old_dist_coin = np.sum(np.abs(max_coin[:, ind] - old_cor_turned))
-            if old_dist_coin < 5:
+            if old_dist_coin < 4:
                 for index in range(len(min_coin[0])):
                     if max_coin[0, ind] == min_coin[0, index] and max_coin[1, ind] == min_coin[1, index]:
-                        max_dist = np.abs((max_coin[0, ind] - old_self_cor_channel[1])) + np.abs(
-                            (max_coin[1, ind] - old_self_cor_channel[0]))
-                        min_dist = np.abs((min_coin[0, index] - new_self_cor_channel[1])) + np.abs(
-                            (min_coin[1, index] - new_self_cor_channel[0]))
+                        max_dist = np.abs((max_coin[0, ind] - old_self_cor_channel[0])) + np.abs(
+                            (max_coin[1, ind] - old_self_cor_channel[1]))
+                        min_dist = np.abs((min_coin[0, index] - new_self_cor_channel[0])) + np.abs(
+                            (min_coin[1, index] - new_self_cor_channel[1]))
                         if min_dist < max_dist and max_coin.all() == old_coins.all():
                             events.append(DECREASED_DISTANCE)
                         elif min_dist > max_dist and max_coin.all() == old_coins.all():
@@ -294,35 +320,8 @@ def bomb_dist_check(old_game_state, new_game_state, events):
         if old_dist_bomb < 5:
             if new_dist_bomb > old_dist_bomb:
                 events.append('MOVED_AWAY_FROM_BOMB')
-            elif new_dist_bomb < old_dist_bomb:
+            elif new_dist_bomb <= old_dist_bomb:
                 events.append('MOVED_TO_BOMB')
-    return events
-
-
-def dead_end_check(old_game_state, new_game_state, events):
-    new_own_location = np.asarray(new_game_state['self'][-1])
-    old_own_location = np.asarray(old_game_state['self'][-1])
-    for bomb in old_game_state['bombs']:
-        bomb_location = bomb[0]
-        if tuple(old_own_location) == bomb_location:
-            chosen_direction = new_own_location - old_own_location
-            if np.sum(chosen_direction) != 0:
-                free_tiles = [(x, y) for (x, y) in np.asarray(np.where(old_game_state['field'] == 0)).T]
-                turn_direction = chosen_direction[::-1]
-
-                loc_dummy = np.copy(new_own_location)
-                dead_end = True
-                for i in range(4):
-                    if tuple(loc_dummy + turn_direction) in free_tiles or tuple(
-                            loc_dummy - turn_direction) in free_tiles:
-                        dead_end = False
-                        break
-                    else:
-                        loc_dummy = loc_dummy + chosen_direction
-                if dead_end:
-                    events.append('DEAD_END')
-                else:
-                    events.append('NOT_DEAD_END')
     return events
 
 

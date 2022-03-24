@@ -6,7 +6,7 @@ from random import shuffle
 
 ACTIONS = ['UP', 'RIGHT', 'DOWN', 'LEFT', 'WAIT', 'BOMB']
 STATE = 17
-EXPLORATION_RATE = 0.05
+EXPLORATION_RATE = 0.1
 EXPLORE_COUNT = 0
 EXPLOIT_COUNT = 0
 
@@ -36,7 +36,7 @@ def setup(self):
             self.model = pickle.load(file)
 
     self.logger.info("Loading Q_sa_inc_3 function from saved state.")
-    with open('Q_sa_rule.npy', 'rb') as f:
+    with open('Q_sa_sum.npy', 'rb') as f:
         self.q_sa = np.load(f, allow_pickle=True)
     self.q_sa = self.q_sa.tolist()
 
@@ -121,6 +121,9 @@ def cor_states(game_state, coordinates, direction_str):
     coins = np.array(game_state["coins"]).T
     bombs = np.array(game_state["bombs"]).T
     explosion = np.array(game_state["explosion_map"])
+    for other_idx in range(len(np.array(game_state["others"]))):
+        other_cor_channel = np.array(game_state["others"][other_idx][3])
+        field_channel[other_cor_channel[1], other_cor_channel[0]] = 1
     state_bits = np.zeros(4)
     if field_channel[coordinates[0], coordinates[1]] == 1:
         state_bits[1] = 1
@@ -132,16 +135,24 @@ def cor_states(game_state, coordinates, direction_str):
         for ind in range(len(coins[0])):
             if coins[0, ind] == coordinates[1] and coins[1, ind] == coordinates[0]:
                 state_bits[0] = 1
+            elif direction_str == 'left' and coins[1, ind] == coordinates[0] and (coins[0, ind] == coordinates[1] - 1 or coins[0, ind] == coordinates[1] - 2 or coins[0, ind] == coordinates[1] - 3):
+                state_bits[0] = 1
+            elif direction_str == 'right' and coins[1, ind] == coordinates[0] and (coins[0, ind] == coordinates[1] + 1 or coins[0, ind] == coordinates[1] + 2 or coins[0, ind] == coordinates[1] + 3):
+                state_bits[0] = 1
+            elif direction_str == 'down' and coins[0, ind] == coordinates[1] and (coins[1, ind] == coordinates[0] + 1 or coins[1, ind] == coordinates[0] + 2 or coins[1, ind] == coordinates[0] + 3):
+                state_bits[0] = 1
+            elif direction_str == 'up' and coins[0, ind] == coordinates[1] and (coins[1, ind] == coordinates[0] - 1 or coins[1, ind] == coordinates[0] - 2 or coins[1, ind] == coordinates[0] - 3):
+                state_bits[0] = 1
     if bombs.size != 0:
         for idx in range(len(bombs[0])):
             check = list(bombs[0][idx])
             if bombs[1][idx] < 1:
-                if (check[0] == coordinates[1] and np.abs(check[1] - coordinates[0]) < 3) or (
-                        check[1] == coordinates[0] and np.abs(check[0] - coordinates[1]) < 3):
+                if (check[0] == coordinates[1] and np.abs(check[1] - coordinates[0]) < 4) or (
+                        check[1] == coordinates[0] and np.abs(check[0] - coordinates[1]) < 4):
                     state_bits[2] = 1
             elif bombs[1][idx] == 1:
-                if (check[0] == coordinates[1] and np.abs(check[1] - coordinates[0]) < 2) or (
-                        check[1] == coordinates[0] and np.abs(check[0] - coordinates[1]) < 2):
+                if (check[0] == coordinates[1] and np.abs(check[1] - coordinates[0]) < 3 and (field_channel[coordinates[0], coordinates[1] - 1] != 0 and field_channel[coordinates[0], coordinates[1] + 1] != 0)) or (
+                        check[1] == coordinates[0] and np.abs(check[0] - coordinates[1]) < 3 and (field_channel[coordinates[0] - 1, coordinates[1]] != 0 and field_channel[coordinates[0] + 1, coordinates[1]] != 0)):
                     state_bits[2] = 1
             if check[0] == coordinates[1] and check[1] == coordinates[0]:
                 state_bits[2] = 1
