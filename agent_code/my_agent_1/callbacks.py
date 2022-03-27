@@ -1,12 +1,10 @@
 import os
 import pickle
 import numpy as np
-from collections import deque
-from random import shuffle
 
 ACTIONS = ['UP', 'RIGHT', 'DOWN', 'LEFT', 'WAIT', 'BOMB']
 STATE = 17
-EXPLORATION_RATE = 0.1
+EXPLORATION_RATE = 0.2
 EXPLORE_COUNT = 0
 EXPLOIT_COUNT = 0
 
@@ -20,23 +18,12 @@ def setup(self):
     after this method. This separation allows you to share your trained agent
     with other students, without revealing your training code.
 
-    In this example, our model is a set of probabilities over actions
-    that are is independent of the game state.
+    Loading the Q-table is done.
 
     :param self: This object is passed to all callbacks and you can set arbitrary values.
     """
-    self.exploration_rate = EXPLORATION_RATE
-    if self.train or not os.path.isfile("my-saved-model.pt"):
-        self.logger.info("Setting up model from scratch.")
-        weights = np.random.rand(len(ACTIONS))
-        self.model = weights / weights.sum()
-    else:
-        self.logger.info("Loading model from saved state.")
-        with open("my-saved-model.pt", "rb") as file:
-            self.model = pickle.load(file)
-
     self.logger.info("Loading Q_sa_inc_3 function from saved state.")
-    with open('Q_sa_sum.npy', 'rb') as f:
+    with open('Q_sa_sum_25.npy', 'rb') as f:
         self.q_sa = np.load(f, allow_pickle=True)
     self.q_sa = self.q_sa.tolist()
 
@@ -53,17 +40,23 @@ def act(self, game_state: dict) -> str:
     global EXPLORE_COUNT
     global EXPLOIT_COUNT
     q = self.q_sa
-    cond = np.max(list(q[features_to_index(state_to_features(game_state))].values()))
+    current_idx = features_to_index(state_to_features(game_state))
 
     p = np.random.random()
     if p < EXPLORATION_RATE:
         self.logger.debug("Exploring")
         EXPLORE_COUNT += 1
         action = np.random.choice(ACTIONS)
+        # Do the second best action sometimes in case of the agent stuck in a loop
+        """second_best = list(q[current_idx])[np.argsort(list(q[current_idx].values()))[-2]]
+        if q[current_idx][second_best] > 0.1:
+            action = second_best
+        else:
+            action = ACTIONS[np.argmax(list(q[current_idx].values()))]"""
     else:
         self.logger.debug("Exploiting (predict actions)")
         EXPLOIT_COUNT += 1
-        action = ACTIONS[np.argmax(list(q[features_to_index(state_to_features(game_state))].values()))]
+        action = ACTIONS[np.argmax(list(q[current_idx].values()))]
 
     self.logger.debug(f"Explore count: {EXPLORE_COUNT}, Exploit count: {EXPLOIT_COUNT}")
     self.logger.debug(f"Q: {list(q[features_to_index(state_to_features(game_state))].values())}")
@@ -110,27 +103,42 @@ def state_to_features(game_state: dict) -> np.array:
 
 def cor_states(game_state, coordinates, direction_str):
     """
-        Checks the given coordinates if there is a coin, if there is a wall or crate or free, and if there is a danger.
-        Danger also contains walls as well.
+    Checks the given coordinates if there is a coin, if there is a wall or crate or free, and if there is a danger.
+    Danger also contains walls as well.
 
-        :param game_state:  A dictionary describing the current game board.
-        :param coordinates:  The given coordinates.
-        :return: np.array of size 3 -> ([0 or 1], [0 or 1], [0 or 1])
-        """
+    :param game_state:  A dictionary describing the current game board.
+    :param coordinates:  The given coordinates.
+    :param direction_str:  The direction that is currently checking.
+    :return: np.array of size 4 -> (1 (if coin), 1 (if crate), 1 (if danger), 1 (if dead end))
+    """
     field_channel = np.array(game_state["field"]).T
     coins = np.array(game_state["coins"]).T
     bombs = np.array(game_state["bombs"]).T
     explosion = np.array(game_state["explosion_map"])
+
+    # Below changes the field map's some free-tile values (0) to crate (1). Those changed free-tile values coordinates
+    # are same as the opponent coordinates. Since both crates and opponents are the things that need to be destroyed, we
+    # decided to make this change.
     for other_idx in range(len(np.array(game_state["others"]))):
         other_cor_channel = np.array(game_state["others"][other_idx][3])
         field_channel[other_cor_channel[1], other_cor_channel[0]] = 1
+
+    # We create 4 bits for each directions' states. First bit is for coins, second bit is for crates, third bit is for
+    # checking danger, and the last bit is for checking dead ends.
     state_bits = np.zeros(4)
+
+    # Below checks if the given coordinate is free, crate or a wall. If it's free, second element of the state_bits
+    # array becomes 0, if it's a crate then the same element becomes 1, and if it's a wall, third element of the
+    # state_bits array becomes 1.
     if field_channel[coordinates[0], coordinates[1]] == 1:
         state_bits[1] = 1
     elif field_channel[coordinates[0], coordinates[1]] == 0:
         state_bits[1] = 0
     else:
         state_bits[2] = 1
+
+    # Below checks if there exists a coin in the given coordinate. If there is a coin in the given direction within the
+    # 3 blocks range, the coin state becomes 1.
     if coins.size != 0:
         for ind in range(len(coins[0])):
             if coins[0, ind] == coordinates[1] and coins[1, ind] == coordinates[0]:
@@ -143,6 +151,10 @@ def cor_states(game_state, coordinates, direction_str):
                 state_bits[0] = 1
             elif direction_str == 'up' and coins[0, ind] == coordinates[1] and (coins[1, ind] == coordinates[0] - 1 or coins[1, ind] == coordinates[0] - 2 or coins[1, ind] == coordinates[0] - 3):
                 state_bits[0] = 1
+
+    # Below checks if the given coordinate is dangerous or not. If there is an explosion or a bomb that is about to
+    # explode danger state is given. Since we do not want our agent to go towards a wall, all walls are seen as
+    # danger as well.
     if bombs.size != 0:
         for idx in range(len(bombs[0])):
             check = list(bombs[0][idx])
@@ -159,140 +171,131 @@ def cor_states(game_state, coordinates, direction_str):
     if explosion[coordinates[1], coordinates[0]] != 0:
         state_bits[2] = 1
 
-    if direction_str == 'left' and (coordinates[1] > 2) and (
-            (field_channel[coordinates[0] - 1, coordinates[1]] != 0 and field_channel[
-                coordinates[0], coordinates[1] - 1] != 0 and field_channel[
-                 coordinates[0] + 1, coordinates[1]] != 0) or (
-                    field_channel[coordinates[0] - 1, coordinates[1]] != 0 and
-                    field_channel[
-                        coordinates[0] + 1, coordinates[1]] != 0 and
-                    field_channel[coordinates[0] - 1, coordinates[1] - 1] != 0 and
-                    field_channel[coordinates[0], coordinates[1] - 2] != 0 and field_channel[
-                        coordinates[0] + 1, coordinates[1] - 1] != 0)
-        or (
-                    field_channel[coordinates[0] - 1, coordinates[1]] != 0 and
-                    field_channel[
-                        coordinates[0] + 1, coordinates[1]] != 0 and
-                    field_channel[coordinates[0] - 1, coordinates[1] - 1] != 0 and field_channel[
-                        coordinates[0] + 1, coordinates[1] - 1] != 0 and
-                    field_channel[coordinates[0] - 1, coordinates[1] - 2] != 0 and
-                    field_channel[coordinates[0], coordinates[1] - 3] != 0 and field_channel[
-                        coordinates[0] + 1, coordinates[1] - 2] != 0)):
-        state_bits[3] = 1
-    elif direction_str == 'left' and (coordinates[1] == 1 or coordinates[1] == 2) and (
-            field_channel[coordinates[0] - 1, coordinates[1]] != 0 and field_channel[
-        coordinates[0], coordinates[1] - 1] != 0 and field_channel[
-                coordinates[0] + 1, coordinates[1]] != 0):
-        state_bits[3] = 1
-    elif direction_str == 'right' and (coordinates[1] < 14) and (
-            (field_channel[coordinates[0] - 1, coordinates[1]] != 0 and field_channel[
-                coordinates[0], coordinates[1] + 1] != 0 and field_channel[
-                 coordinates[0] + 1, coordinates[1]] != 0) or (
-                    field_channel[coordinates[0] - 1, coordinates[1]] != 0 and field_channel[
-                coordinates[0] + 1, coordinates[1]] != 0 and
-                    field_channel[coordinates[0] - 1, coordinates[1] + 1] != 0 and
-                    field_channel[coordinates[0], coordinates[1] + 2] != 0 and field_channel[
-                        coordinates[0] + 1, coordinates[1] + 1] != 0)
-        or (
-                    field_channel[coordinates[0] - 1, coordinates[1]] != 0 and field_channel[
-                coordinates[0] + 1, coordinates[1]] != 0 and
-                    field_channel[coordinates[0] - 1, coordinates[1] + 1] != 0 and field_channel[
-                        coordinates[0] + 1, coordinates[1] + 1] != 0 and
-                    field_channel[coordinates[0] - 1, coordinates[1] + 2] != 0 and
-                    field_channel[coordinates[0], coordinates[1] + 3] != 0 and field_channel[
-                        coordinates[0] + 1, coordinates[1] + 2] != 0)):
-        state_bits[3] = 1
-    elif direction_str == 'right' and (coordinates[1] == 15 or coordinates[1] == 14) and (
-            field_channel[coordinates[0] - 1, coordinates[1]] != 0 and field_channel[
-        coordinates[0], coordinates[1] + 1] != 0 and field_channel[
-                coordinates[0] + 1, coordinates[1]] != 0):
-        state_bits[3] = 1
-    elif direction_str == 'up' and (coordinates[0] > 2) and (
-            (field_channel[coordinates[0] - 1, coordinates[1]] != 0 and field_channel[
-                coordinates[0], coordinates[1] + 1] != 0 and field_channel[
-                 coordinates[0], coordinates[1] - 1] != 0) or (field_channel[
-                                                                   coordinates[0], coordinates[1] + 1] != 0 and
-                                                               field_channel[
-                                                                   coordinates[0], coordinates[1] - 1] != 0 and
-                                                               field_channel[
-                                                                   coordinates[0] - 1, coordinates[1] + 1] != 0 and
-                                                               field_channel[
-                                                                   coordinates[0] - 2, coordinates[1]] != 0 and
-                                                               field_channel[
-                                                                   coordinates[0] - 1, coordinates[1] - 1] != 0)
-        or (
-                    field_channel[
-                        coordinates[0], coordinates[1] + 1] != 0 and
-                    field_channel[
-                        coordinates[0], coordinates[1] - 1] != 0 and
-                    field_channel[
-                        coordinates[0] - 1, coordinates[1] + 1] != 0 and
-                    field_channel[
-                        coordinates[0] - 1, coordinates[1] - 1] != 0 and
-                    field_channel[coordinates[0] - 2, coordinates[1] + 1] != 0 and
-                    field_channel[coordinates[0] - 3, coordinates[1]] != 0 and field_channel[
-                        coordinates[0] - 2, coordinates[1] - 1] != 0)):
-        state_bits[3] = 1
-    elif direction_str == 'up' and (coordinates[0] == 1 or coordinates[0] == 2) and (
-            field_channel[coordinates[0] - 1, coordinates[1]] != 0 and field_channel[
-        coordinates[0], coordinates[1] + 1] != 0 and field_channel[coordinates[0], coordinates[1] - 1] != 0):
-        state_bits[3] = 1
-    elif direction_str == 'down' and (coordinates[0] < 14) and (
-            (field_channel[coordinates[0] + 1, coordinates[1]] != 0 and field_channel[
-                coordinates[0], coordinates[1] + 1] != 0 and field_channel[
-                 coordinates[0], coordinates[1] - 1] != 0) or (field_channel[
-                                                                   coordinates[0], coordinates[1] + 1] != 0 and
-                                                               field_channel[
-                                                                   coordinates[0], coordinates[1] - 1] != 0 and
-                                                               field_channel[
-                                                                   coordinates[0] + 1, coordinates[1] + 1] != 0 and
-                                                               field_channel[
-                                                                   coordinates[0] + 2, coordinates[1]] != 0 and
-                                                               field_channel[
-                                                                   coordinates[0] + 1, coordinates[1] - 1] != 0)
-        or (field_channel[
-                coordinates[0], coordinates[1] + 1] != 0 and field_channel[
-                 coordinates[0], coordinates[1] - 1] != 0 and
-                    field_channel[coordinates[0] + 1, coordinates[1] + 1] != 0 and field_channel[
-                        coordinates[0] + 1, coordinates[1] - 1] != 0 and
-                    field_channel[coordinates[0] + 2, coordinates[1] + 1] != 0 and
-                    field_channel[coordinates[0] + 3, coordinates[1]] != 0 and field_channel[
-                        coordinates[0] + 2, coordinates[1] - 1] != 0)):
-        state_bits[3] = 1
-    elif direction_str == 'down' and (coordinates[0] == 15 or coordinates[0] == 14) and (
-            field_channel[coordinates[0] + 1, coordinates[1]] != 0 and field_channel[
-        coordinates[0], coordinates[1] + 1] != 0 and field_channel[coordinates[0], coordinates[1] - 1] != 0):
-        state_bits[3] = 1
+    # Below checks if the given coordinate is a dead end or not. If the 3 further blocks among the given direction are
+    # free, not dead end state is given.
+    if bombs.size != 0:
+        for idx in range(len(bombs[0])):
+            check = list(bombs[0][idx])
+            dist_bomb = np.sum(np.abs(np.array(check) - np.array(coordinates[::-1])))
+            if dist_bomb < 4:
+                if direction_str == 'left' and (coordinates[1] > 2) and (check[0] == coordinates[1] + 1 or check[1] == coordinates[0]) and (
+                        (field_channel[coordinates[0] - 1, coordinates[1]] != 0 and field_channel[
+                            coordinates[0], coordinates[1] - 1] != 0 and field_channel[
+                             coordinates[0] + 1, coordinates[1]] != 0) or (
+                                field_channel[coordinates[0] - 1, coordinates[1]] != 0 and
+                                field_channel[
+                                    coordinates[0] + 1, coordinates[1]] != 0 and
+                                field_channel[coordinates[0] - 1, coordinates[1] - 1] != 0 and
+                                field_channel[coordinates[0], coordinates[1] - 2] != 0 and field_channel[
+                                    coordinates[0] + 1, coordinates[1] - 1] != 0)
+                    or (
+                                field_channel[coordinates[0] - 1, coordinates[1]] != 0 and
+                                field_channel[
+                                    coordinates[0] + 1, coordinates[1]] != 0 and
+                                field_channel[coordinates[0] - 1, coordinates[1] - 1] != 0 and field_channel[
+                                    coordinates[0] + 1, coordinates[1] - 1] != 0 and
+                                field_channel[coordinates[0] - 1, coordinates[1] - 2] != 0 and
+                                field_channel[coordinates[0], coordinates[1] - 3] != 0 and field_channel[
+                                    coordinates[0] + 1, coordinates[1] - 2] != 0)):
+                    state_bits[3] = 1
+                elif direction_str == 'left' and (coordinates[1] == 1 or coordinates[1] == 2) and (
+                        field_channel[coordinates[0] - 1, coordinates[1]] != 0 and field_channel[
+                    coordinates[0], coordinates[1] - 1] != 0 and field_channel[
+                            coordinates[0] + 1, coordinates[1]] != 0):
+                    state_bits[3] = 1
+                elif direction_str == 'right' and (coordinates[1] < 14) and (check[0] == coordinates[1] - 1 or check[1] == coordinates[0]) and (
+                        (field_channel[coordinates[0] - 1, coordinates[1]] != 0 and field_channel[
+                            coordinates[0], coordinates[1] + 1] != 0 and field_channel[
+                             coordinates[0] + 1, coordinates[1]] != 0) or (
+                                field_channel[coordinates[0] - 1, coordinates[1]] != 0 and field_channel[
+                            coordinates[0] + 1, coordinates[1]] != 0 and
+                                field_channel[coordinates[0] - 1, coordinates[1] + 1] != 0 and
+                                field_channel[coordinates[0], coordinates[1] + 2] != 0 and field_channel[
+                                    coordinates[0] + 1, coordinates[1] + 1] != 0)
+                    or (
+                                field_channel[coordinates[0] - 1, coordinates[1]] != 0 and field_channel[
+                            coordinates[0] + 1, coordinates[1]] != 0 and
+                                field_channel[coordinates[0] - 1, coordinates[1] + 1] != 0 and field_channel[
+                                    coordinates[0] + 1, coordinates[1] + 1] != 0 and
+                                field_channel[coordinates[0] - 1, coordinates[1] + 2] != 0 and
+                                field_channel[coordinates[0], coordinates[1] + 3] != 0 and field_channel[
+                                    coordinates[0] + 1, coordinates[1] + 2] != 0)):
+                    state_bits[3] = 1
+                elif direction_str == 'right' and (coordinates[1] == 15 or coordinates[1] == 14) and (
+                        field_channel[coordinates[0] - 1, coordinates[1]] != 0 and field_channel[
+                    coordinates[0], coordinates[1] + 1] != 0 and field_channel[
+                            coordinates[0] + 1, coordinates[1]] != 0):
+                    state_bits[3] = 1
+                elif direction_str == 'up' and (coordinates[0] > 2) and (check[0] == coordinates[1] or check[1] == coordinates[0] - 1) and (
+                        (field_channel[coordinates[0] - 1, coordinates[1]] != 0 and field_channel[
+                            coordinates[0], coordinates[1] + 1] != 0 and field_channel[
+                             coordinates[0], coordinates[1] - 1] != 0) or (field_channel[
+                                                                               coordinates[0], coordinates[1] + 1] != 0 and
+                                                                           field_channel[
+                                                                               coordinates[0], coordinates[1] - 1] != 0 and
+                                                                           field_channel[
+                                                                               coordinates[0] - 1, coordinates[1] + 1] != 0 and
+                                                                           field_channel[
+                                                                               coordinates[0] - 2, coordinates[1]] != 0 and
+                                                                           field_channel[
+                                                                               coordinates[0] - 1, coordinates[1] - 1] != 0)
+                    or (
+                                field_channel[
+                                    coordinates[0], coordinates[1] + 1] != 0 and
+                                field_channel[
+                                    coordinates[0], coordinates[1] - 1] != 0 and
+                                field_channel[
+                                    coordinates[0] - 1, coordinates[1] + 1] != 0 and
+                                field_channel[
+                                    coordinates[0] - 1, coordinates[1] - 1] != 0 and
+                                field_channel[coordinates[0] - 2, coordinates[1] + 1] != 0 and
+                                field_channel[coordinates[0] - 3, coordinates[1]] != 0 and field_channel[
+                                    coordinates[0] - 2, coordinates[1] - 1] != 0)):
+                    state_bits[3] = 1
+                elif direction_str == 'up' and (coordinates[0] == 1 or coordinates[0] == 2) and (
+                        field_channel[coordinates[0] - 1, coordinates[1]] != 0 and field_channel[
+                    coordinates[0], coordinates[1] + 1] != 0 and field_channel[coordinates[0], coordinates[1] - 1] != 0):
+                    state_bits[3] = 1
+                elif direction_str == 'down' and (coordinates[0] < 14) and (check[0] == coordinates[1] or check[1] == coordinates[0] + 1) and (
+                        (field_channel[coordinates[0] + 1, coordinates[1]] != 0 and field_channel[
+                            coordinates[0], coordinates[1] + 1] != 0 and field_channel[
+                             coordinates[0], coordinates[1] - 1] != 0) or (field_channel[
+                                                                               coordinates[0], coordinates[1] + 1] != 0 and
+                                                                           field_channel[
+                                                                               coordinates[0], coordinates[1] - 1] != 0 and
+                                                                           field_channel[
+                                                                               coordinates[0] + 1, coordinates[1] + 1] != 0 and
+                                                                           field_channel[
+                                                                               coordinates[0] + 2, coordinates[1]] != 0 and
+                                                                           field_channel[
+                                                                               coordinates[0] + 1, coordinates[1] - 1] != 0)
+                    or (field_channel[
+                            coordinates[0], coordinates[1] + 1] != 0 and field_channel[
+                             coordinates[0], coordinates[1] - 1] != 0 and
+                                field_channel[coordinates[0] + 1, coordinates[1] + 1] != 0 and field_channel[
+                                    coordinates[0] + 1, coordinates[1] - 1] != 0 and
+                                field_channel[coordinates[0] + 2, coordinates[1] + 1] != 0 and
+                                field_channel[coordinates[0] + 3, coordinates[1]] != 0 and field_channel[
+                                    coordinates[0] + 2, coordinates[1] - 1] != 0)):
+                    state_bits[3] = 1
+                elif direction_str == 'down' and (coordinates[0] == 15 or coordinates[0] == 14) and (
+                        field_channel[coordinates[0] + 1, coordinates[1]] != 0 and field_channel[
+                    coordinates[0], coordinates[1] + 1] != 0 and field_channel[coordinates[0], coordinates[1] - 1] != 0):
+                    state_bits[3] = 1
 
     return state_bits
 
 
 def features_to_index(features):
+    """
+    Converts the given feature array to an index which will be used as the q-table index.
+
+    :param features:  Each direction has 4 elements of features so 16 from there and 1 element for checking to
+    drop a bomb.
+    :return: np.array of size 4 -> (1 (if coin), 1 (if crate), 1 (if danger), 1 (if dead end))
+    """
     state_no = STATE
     index = 0
     for n in range(state_no):
         index += 2 ** (state_no - n - 1) * features[n]
     return index
-
-
-def get_explosion_xys(start, map, bomb_power=3):
-    """
-    returns all tiles hit by an explosion starting at start given a 2d map of the game
-       where walls are indicated by -1
-    """
-    x, y = start
-    expl = [(x, y)]
-    for i in range(1, bomb_power + 1):
-        if map[x + i, y] == -1: break
-        expl.append((x + i, y))
-    for i in range(1, bomb_power + 1):
-        if map[x - i, y] == -1: break
-        expl.append((x - i, y))
-    for i in range(1, bomb_power + 1):
-        if map[x, y + i] == -1: break
-        expl.append((x, y + i))
-    for i in range(1, bomb_power + 1):
-        if map[x, y - i] == -1: break
-        expl.append((x, y - i))
-
-    return np.array(expl)
