@@ -112,7 +112,7 @@ def main(argv = None):
 
     play_parser.add_argument("--seed", type=int, help="Reset the world's random number generator to a known number for reproducibility")
 
-    play_parser.add_argument("--n-rounds", type=int, default=60000, help="How many rounds to play")
+    play_parser.add_argument("--n-rounds", type=int, default=1000, help="How many rounds to play")
     play_parser.add_argument("--save-replay", const=True, default=False, action='store', nargs='?', help='Store the game as .pt for a replay')
     play_parser.add_argument("--match-name", help="Give the match a name")
 
