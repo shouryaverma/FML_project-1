@@ -46,14 +46,14 @@ def setup_training(self):
     self.alpha = 0.1
     self.gamma = 0.8
 
-    if not os.path.isfile("Q_sa_sum_25.npy"):
-        self.logger.info("Setting up Q_sa_sum_25 function")
+    if not os.path.isfile("Q_sa_upload.npy"):
+        self.logger.info("Setting up Q_sa_upload function")
         construct_q_table(TOTAL_STATES)
-        with open('Q_sa_sum_25.npy', 'rb') as f:
+        with open('Q_sa_upload.npy', 'rb') as f:
             self.q_sa = np.load(f, allow_pickle=True)
     else:
-        self.logger.info("Loading Q_sa_sum_25 function from saved state.")
-        with open('Q_sa_sum_25.npy', 'rb') as f:
+        self.logger.info("Loading Q_sa_upload function from saved state.")
+        with open('Q_sa_upload.npy', 'rb') as f:
             self.q_sa = np.load(f, allow_pickle=True)
     self.q_sa = self.q_sa.tolist()
     self.transitions = deque(maxlen=TRANSITION_HISTORY_SIZE)
@@ -126,7 +126,7 @@ def end_of_round(self, last_game_state: dict, last_action: str, events: List[str
         for a in self.q_sa[s]:
             self.q_sa[s][a] = round(self.q_sa[s][a], 5)
 
-    with open('Q_sa_sum_25.npy', 'wb') as f:
+    with open('Q_sa_upload.npy', 'wb') as f:
         np.save(f, self.q_sa)
 
 
@@ -225,12 +225,40 @@ def update_table(self, old_game_state, action, new_game_state, reward):
             rotated_state = np.array([right_state] + [left_state] + [state_to_features(old_game_state)[8:]])
             rotated_state = np.concatenate(rotated_state, axis=None)
             self.q_sa[features_to_index(rotated_state)]['RIGHT'] += old_q_value
+
+            up_state = state_to_features(old_game_state)[8:12]
+            down_state = state_to_features(old_game_state)[12:16]
+            rotated_state_vert_1 = np.array([state_to_features(old_game_state)[:8]] + [down_state] + [up_state] + [
+                state_to_features(old_game_state)[16]])
+            rotated_state_vert_1 = np.concatenate(rotated_state_vert_1, axis=None)
+            self.q_sa[features_to_index(rotated_state_vert_1)]['LEFT'] += old_q_value
+
+            up_state = state_to_features(old_game_state)[8:12]
+            down_state = state_to_features(old_game_state)[12:16]
+            rotated_state_vert_2 = np.array([rotated_state[:8]] + [down_state] + [up_state] + [
+                state_to_features(old_game_state)[16]])
+            rotated_state_vert_2 = np.concatenate(rotated_state_vert_2, axis=None)
+            self.q_sa[features_to_index(rotated_state_vert_2)]['RIGHT'] += old_q_value
         elif action == 'RIGHT':
             left_state = state_to_features(old_game_state)[:4]
             right_state = state_to_features(old_game_state)[4:8]
             rotated_state = np.array([right_state] + [left_state] + [state_to_features(old_game_state)[8:]])
             rotated_state = np.concatenate(rotated_state, axis=None)
             self.q_sa[features_to_index(rotated_state)]['LEFT'] += old_q_value
+
+            up_state = state_to_features(old_game_state)[8:12]
+            down_state = state_to_features(old_game_state)[12:16]
+            rotated_state_vert_1 = np.array([state_to_features(old_game_state)[:8]] + [down_state] + [up_state] + [
+                state_to_features(old_game_state)[16]])
+            rotated_state_vert_1 = np.concatenate(rotated_state_vert_1, axis=None)
+            self.q_sa[features_to_index(rotated_state_vert_1)]['RIGHT'] += old_q_value
+
+            up_state = state_to_features(old_game_state)[8:12]
+            down_state = state_to_features(old_game_state)[12:16]
+            rotated_state_vert_2 = np.array([rotated_state[:8]] + [down_state] + [up_state] + [
+                state_to_features(old_game_state)[16]])
+            rotated_state_vert_2 = np.concatenate(rotated_state_vert_2, axis=None)
+            self.q_sa[features_to_index(rotated_state_vert_2)]['LEFT'] += old_q_value
         elif action == 'UP':
             up_state = state_to_features(old_game_state)[8:12]
             down_state = state_to_features(old_game_state)[12:16]
@@ -238,6 +266,18 @@ def update_table(self, old_game_state, action, new_game_state, reward):
                 state_to_features(old_game_state)[16]])
             rotated_state = np.concatenate(rotated_state, axis=None)
             self.q_sa[features_to_index(rotated_state)]['DOWN'] += old_q_value
+
+            left_state = state_to_features(old_game_state)[:4]
+            right_state = state_to_features(old_game_state)[4:8]
+            rotated_state_hor_1 = np.array([right_state] + [left_state] + [state_to_features(old_game_state)[8:]])
+            rotated_state_hor_1 = np.concatenate(rotated_state_hor_1, axis=None)
+            self.q_sa[features_to_index(rotated_state_hor_1)]['DOWN'] += old_q_value
+
+            left_state = state_to_features(old_game_state)[:4]
+            right_state = state_to_features(old_game_state)[4:8]
+            rotated_state_hor_2 = np.array([right_state] + [left_state] + [rotated_state[8:]])
+            rotated_state_hor_2 = np.concatenate(rotated_state_hor_2, axis=None)
+            self.q_sa[features_to_index(rotated_state_hor_2)]['UP'] += old_q_value
         elif action == 'DOWN':
             up_state = state_to_features(old_game_state)[8:12]
             down_state = state_to_features(old_game_state)[12:16]
@@ -245,6 +285,37 @@ def update_table(self, old_game_state, action, new_game_state, reward):
                 state_to_features(old_game_state)[16]])
             rotated_state = np.concatenate(rotated_state, axis=None)
             self.q_sa[features_to_index(rotated_state)]['UP'] += old_q_value
+
+            left_state = state_to_features(old_game_state)[:4]
+            right_state = state_to_features(old_game_state)[4:8]
+            rotated_state_hor_1 = np.array([right_state] + [left_state] + [state_to_features(old_game_state)[8:]])
+            rotated_state_hor_1 = np.concatenate(rotated_state_hor_1, axis=None)
+            self.q_sa[features_to_index(rotated_state_hor_1)]['DOWN'] += old_q_value
+
+            left_state = state_to_features(old_game_state)[:4]
+            right_state = state_to_features(old_game_state)[4:8]
+            rotated_state_hor_2 = np.array([right_state] + [left_state] + [rotated_state[8:]])
+            rotated_state_hor_2 = np.concatenate(rotated_state_hor_2, axis=None)
+            self.q_sa[features_to_index(rotated_state_hor_2)]['UP'] += old_q_value
+        elif action == 'WAIT' or action == 'BOMB':
+            up_state = state_to_features(old_game_state)[8:12]
+            down_state = state_to_features(old_game_state)[12:16]
+            rotated_state = np.array([state_to_features(old_game_state)[:8]] + [down_state] + [up_state] + [
+                state_to_features(old_game_state)[16]])
+            rotated_state = np.concatenate(rotated_state, axis=None)
+            self.q_sa[features_to_index(rotated_state)][action] += old_q_value
+
+            left_state = state_to_features(old_game_state)[:4]
+            right_state = state_to_features(old_game_state)[4:8]
+            rotated_state_hor_1 = np.array([right_state] + [left_state] + [state_to_features(old_game_state)[8:]])
+            rotated_state_hor_1 = np.concatenate(rotated_state_hor_1, axis=None)
+            self.q_sa[features_to_index(rotated_state_hor_1)][action] += old_q_value
+
+            left_state = state_to_features(old_game_state)[:4]
+            right_state = state_to_features(old_game_state)[4:8]
+            rotated_state_hor_2 = np.array([right_state] + [left_state] + [rotated_state[8:]])
+            rotated_state_hor_2 = np.concatenate(rotated_state_hor_2, axis=None)
+            self.q_sa[features_to_index(rotated_state_hor_2)][action] += old_q_value
 
     # Give an upper bound otherwise, values may go to infinity and also it takes less time to calculate small numbers.
     if self.q_sa[old_state_idx][action] > 1:
@@ -263,7 +334,7 @@ def construct_q_table(state_count):
             else:
                 Q[s][a] = 0.2
 
-    with open('Q_sa_sum_25.npy', 'wb') as f:
+    with open('Q_sa_upload.npy', 'wb') as f:
         np.save(f, Q)
 
 

@@ -23,7 +23,7 @@ def setup(self):
     :param self: This object is passed to all callbacks and you can set arbitrary values.
     """
     self.logger.info("Loading Q_sa_inc_3 function from saved state.")
-    with open('Q_sa_sum_25.npy', 'rb') as f:
+    with open('Q_sa_upload.npy', 'rb') as f:
         self.q_sa = np.load(f, allow_pickle=True)
     self.q_sa = self.q_sa.tolist()
 
